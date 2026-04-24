@@ -610,15 +610,15 @@ class OddsTableDisplay:
                 prefix = "受让" if handicap_text.startswith("受让") else ""
                 core = handicap_text.replace("受让", "")
                 if prefix:
-                    handicap_text = f"客受让{core}"
+                    handicap_text = f"客受让 {core}"
                 else:
                     try:
                         if float(handicap) > 0:
-                            handicap_text = f"主让{core}"
+                            handicap_text = f"主让 {core}"
                         elif float(handicap) == 0:
                             handicap_text = core
                         else:
-                            handicap_text = f"主受让{core}"
+                            handicap_text = f"主受让 {core}"
                     except:
                         handicap_text = core
             tk.Label(status_frame, text=f"盘口: {handicap_text}", font=('Microsoft YaHei', max(10, int(12*s))),
