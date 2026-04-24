@@ -811,18 +811,47 @@ class MatchDisplayApp:
         status_frame.bind('<Button-1>', on_click)
 
         status = match.get('status', '')
+        status_code = match.get('status_code', '')
         if status:
             status_label = tk.Label(status_frame, text=status, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#0f3460', padx=int(10*s), pady=int(5*s))
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
-
-        handicap = match.get('handicap', '')
-        if handicap:
-            odds_frame = tk.Frame(status_frame, bg='#1a1a2e')
-            odds_frame.pack(side=tk.RIGHT, padx=int(5*s))
-            handicap_label = tk.Label(odds_frame, text=f"盘口：{handicap}", font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#00ffff', bg='#1a1a2e', padx=int(10*s))
-            handicap_label.pack(side=tk.RIGHT)
-            handicap_label.bind('<Button-1>', on_click)
+        
+        # 计算并显示比赛进行时间
+        if status_code in ['1', '3']:  # 进行中或中场
+            try:
+                start_time = match.get('start_time', '')
+                update_time = match.get('update_time', '')
+                
+                if start_time and update_time:
+                    start_parts = start_time.split(',')
+                    update_parts = update_time.split(',')
+                    
+                    if len(start_parts) >= 5 and len(update_parts) >= 5:
+                        start_h = int(start_parts[3])
+                        start_m = int(start_parts[4])
+                        update_h = int(update_parts[3])
+                        update_m = int(update_parts[4])
+                        
+                        start_total = start_h * 60 + start_m
+                        update_total = update_h * 60 + update_m
+                        
+                        if update_total >= start_total:
+                            diff = update_total - start_total
+                            
+                            # 显示进行时间
+                            time_frame = tk.Frame(status_frame, bg='#1a1a2e')
+                            time_frame.pack(side=tk.RIGHT, padx=int(5*s))
+                            
+                            time_text = f"{int(diff)}'"
+                            time_label = tk.Label(time_frame, text=time_text, 
+                                                 font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), 
+                                                 fg='#00ff00', bg='#1a1a2e', padx=int(10*s))
+                            time_label.pack(side=tk.RIGHT)
+                            time_label.bind('<Button-1>', on_click)
+            except:
+                pass
+        # 未开始或已结束不显示时间
 
         return card
     
