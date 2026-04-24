@@ -727,33 +727,42 @@ class MatchDisplayApp:
             time_label.bind('<Button-1>', on_click)
 
         info_frame = tk.Frame(card, bg='#1a1a2e')
-        info_frame.pack(fill=tk.X, pady=int(15*s), padx=int(10*s))
+        info_frame.pack(fill=tk.X, pady=int(12*s), padx=int(15*s))
         info_frame.bind('<Button-1>', on_click)
 
         # 获取比分
         score = match.get('score', '')
         home_score = ''
         away_score = ''
+        has_score = False
         if score and ':' in score:
             home_score, away_score = score.split(':')
+            has_score = True
 
+        # 主队信息
         home_team = match.get('home_team', '')
         if home_team:
-            home_text = f"{home_team}  {home_score}" if home_score else home_team
-            home_label = tk.Label(info_frame, text=home_text, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
-            home_label.pack(fill=tk.X)
+            home_label = tk.Label(info_frame, text=home_team, font=('Microsoft YaHei', max(10, int(13*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
+            home_label.grid(row=0, column=0, sticky='w', padx=(0, 10))
             home_label.bind('<Button-1>', on_click)
 
-        vs_label = tk.Label(info_frame, text="VS", font=('Microsoft YaHei', max(9, int(12*s)), 'bold'), fg='#ffffff', bg='#1a1a2e')
-        vs_label.pack()
-        vs_label.bind('<Button-1>', on_click)
+        # 比分显示
+        if has_score:
+            score_text = f"{home_score} - {away_score}"
+            score_label = tk.Label(info_frame, text=score_text, font=('Microsoft YaHei', max(12, int(18*s)), 'bold'), fg='#ffd700', bg='#1a1a2e')
+            score_label.grid(row=0, column=1, rowspan=2, padx=10)
+            score_label.bind('<Button-1>', on_click)
 
+        # 客队信息
         away_team = match.get('away_team', '')
         if away_team:
-            away_text = f"{away_score}  {away_team}" if away_score else away_team
-            away_label = tk.Label(info_frame, text=away_text, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
-            away_label.pack(fill=tk.X)
+            away_label = tk.Label(info_frame, text=away_team, font=('Microsoft YaHei', max(10, int(13*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
+            away_label.grid(row=1, column=0, sticky='w', padx=(0, 10), pady=(5, 0))
             away_label.bind('<Button-1>', on_click)
+
+        # 配置Grid列权重
+        info_frame.columnconfigure(0, weight=1)
+        info_frame.columnconfigure(1, weight=0)
 
         status_frame = tk.Frame(card, bg='#0f3460')
         status_frame.pack(fill=tk.X)
