@@ -569,6 +569,22 @@ class OddsTableDisplay:
         tk.Label(status_frame, text=f"时间: {match_time}", font=('Microsoft YaHei', max(10, int(12*s))),
                 fg='#666666', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
 
+        handicap = match.get('handicap', '')
+        if handicap:
+            handicap_text = ""
+            try:
+                handicap_val = float(handicap)
+                if handicap_val > 0:
+                    handicap_text = f"主让{handicap_val}"
+                elif handicap_val < 0:
+                    handicap_text = f"客让{abs(handicap_val)}"
+                else:
+                    handicap_text = "平手"
+            except:
+                handicap_text = handicap
+            tk.Label(status_frame, text=f"盘口: {handicap_text}", font=('Microsoft YaHei', max(10, int(12*s))),
+                    fg='#cc0000', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
+
     def create_european_odds_table(self, match: Dict):
         """创建简版欧洲指数表格"""
         init_home = match.get('init_home_odd', '')
@@ -623,7 +639,6 @@ class OddsTableDisplay:
 
         # 即时赔率
         self.create_european_odds_table(match)
-        self.create_asian_handicap_table(match)
 
         if analysis_data:
             # 即时走势 - 包含让球/大小球/欧洲指数
