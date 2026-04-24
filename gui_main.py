@@ -817,61 +817,76 @@ class MatchDisplayApp:
             return f"获取数据失败：{e}"
     
     def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 只显示盘口信息"""
+        """解析网页内容 - 格式化显示"""
         soup = BeautifulSoup(html, 'html.parser')
         
-        # 提取主要信息
         content = []
+        content.append("=" * 80)
+        content.append(f"  {match.get('home_team', '')} VS {match.get('away_team', '')}")
+        content.append("=" * 80)
         
-        # 提取所有表格数据
         tables = soup.find_all('table')
         
-        # 1. 全场亚让盘（包含"全場"、"亚讓盤"、"贏盤"）
+        # 记录已处理的表格文本，避免重复
+        processed_tables = set()
+        
+        # 提取全场亚盘
         content.append("\n【全场亚盘】")
-        asian_found = False
+        content.append("-" * 60)
         for table in tables:
             table_text = table.get_text(strip=True)
-            if '全場' in table_text and '亚讓盤' in table_text:
-                if not asian_found:
-                    asian_found = True
+            if '全場' in table_text and '亚讓盤' in table_text and table_text not in processed_tables:
+                processed_tables.add(table_text)
                 rows = table.find_all('tr')
                 for row in rows:
                     cells = row.find_all(['td', 'th'])
                     row_data = [cell.get_text(strip=True) for cell in cells]
                     if row_data and len(row_data) > 1:
-                        content.append("  ".join(row_data))
+                        # 格式化行数据，更清晰的显示
+                        if len(row_data) >= 7:
+                            content.append(f"  {row_data[0]:<12} {row_data[1]:<10} {row_data[2]:<10} {row_data[3]:<10} {row_data[4]:<10} {row_data[5]:<10} {row_data[6]:<10}")
+                        else:
+                            content.append(f"  {' | '.join(row_data)}")
+                break
         
-        # 2. 半场亚让盘（包含"半場"、"亚讓盤"）
+        # 提取半场亚盘
         content.append("\n【半场亚盘】")
-        half_asian_found = False
+        content.append("-" * 60)
         for table in tables:
             table_text = table.get_text(strip=True)
-            if '半場' in table_text and '亚讓盤' in table_text:
-                if not half_asian_found:
-                    half_asian_found = True
+            if '半場' in table_text and '亚讓盤' in table_text and table_text not in processed_tables:
+                processed_tables.add(table_text)
                 rows = table.find_all('tr')
                 for row in rows:
                     cells = row.find_all(['td', 'th'])
                     row_data = [cell.get_text(strip=True) for cell in cells]
                     if row_data and len(row_data) > 1:
-                        content.append("  ".join(row_data))
+                        if len(row_data) >= 7:
+                            content.append(f"  {row_data[0]:<12} {row_data[1]:<10} {row_data[2]:<10} {row_data[3]:<10} {row_data[4]:<10} {row_data[5]:<10} {row_data[6]:<10}")
+                        else:
+                            content.append(f"  {' | '.join(row_data)}")
+                break
         
-        # 3. 进球数（包含"進球數"、"大球"、"小球"）
+        # 提取进球数
         content.append("\n【进球数】")
-        goal_found = False
+        content.append("-" * 60)
         for table in tables:
             table_text = table.get_text(strip=True)
-            if '進球數' in table_text and ('大球' in table_text or '小球' in table_text):
-                if not goal_found:
-                    goal_found = True
+            if '進球數' in table_text and ('大球' in table_text or '小球' in table_text) and table_text not in processed_tables:
+                processed_tables.add(table_text)
                 rows = table.find_all('tr')
                 for row in rows:
                     cells = row.find_all(['td', 'th'])
                     row_data = [cell.get_text(strip=True) for cell in cells]
                     if row_data and len(row_data) > 1:
-                        content.append("  ".join(row_data))
+                        if len(row_data) >= 7:
+                            content.append(f"  {row_data[0]:<12} {row_data[1]:<10} {row_data[2]:<10} {row_data[3]:<10} {row_data[4]:<10} {row_data[5]:<10} {row_data[6]:<10}")
+                        else:
+                            content.append(f"  {' | '.join(row_data)}")
+                break
         
-        return "\n".join(content) if content else "暂无盘口数据"
+        content.append("\n" + "=" * 80)
+        return "\n".join(content)
     
     def display_web_analysis(self, match: Dict, web_data: str, loading_label):
         s = self.scale
@@ -910,9 +925,20 @@ class MatchDisplayApp:
             self.current_scroll_canvas = self.list_canvas
         self.detail_frame.bind("<Enter>", on_enter_detail)
         self.detail_frame.bind("<Leave>", on_leave_detail)
+        
         if web_data:
-            web_label = tk.Label(scrollable_frame, text=web_data, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#0f3460', justify=tk.LEFT, anchor='w', wraplength=int(800*s))
-            web_label.pack(fill=tk.X, padx=int(20*s), pady=int(10*s))
+            # 使用等宽字体显示表格数据
+            web_label = tk.Label(
+                scrollable_frame, 
+                text=web_data, 
+                font=('Consolas', max(9, int(11*s))), 
+                fg='#ffffff', 
+                bg='#0f3460', 
+                justify=tk.LEFT, 
+                anchor='w', 
+                wraplength=int(900*s)
+            )
+            web_label.pack(fill=tk.X, padx=int(15*s), pady=int(10*s))
     
     def show_match_detail(self, match: Dict):
         s = self.scale
