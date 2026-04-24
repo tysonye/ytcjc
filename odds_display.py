@@ -625,16 +625,26 @@ class OddsTableDisplay:
                     fg='#cc0000', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
 
     def create_european_odds_table(self, match: Dict, analysis_data: Dict = None):
-        """创建简版欧洲指数表格 - 优先从Vs_eOdds获取数据"""
+        """创建简版欧洲指数表格 - 优先从竞彩指数获取数据"""
         init_home = ''
         init_draw = ''
         init_away = ''
         curr_home = ''
         curr_draw = ''
         curr_away = ''
-        company = ''
+        company = '竞彩指数'
 
         if analysis_data:
+            jc = analysis_data.get('jc_odds', {})
+            if jc:
+                init_home = jc.get('eu_full_init_home', '')
+                init_draw = jc.get('eu_full_init_draw', '')
+                init_away = jc.get('eu_full_init_away', '')
+                curr_home = jc.get('eu_full_curr_home', '')
+                curr_draw = jc.get('eu_full_curr_draw', '')
+                curr_away = jc.get('eu_full_curr_away', '')
+
+        if not init_home and analysis_data:
             instant = analysis_data.get('instant_eu_odds', {})
             if instant:
                 company = instant.get('company', '')

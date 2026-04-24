@@ -225,6 +225,10 @@ class MatchScraper:
                 odds_data = self.fetch_odds_trend(match_unique_id)
                 if odds_data:
                     analysis_data['odds_trend'] = odds_data
+                # 获取竞彩指数数据
+                jc_odds = self.fetch_jc_odds(match_unique_id)
+                if jc_odds:
+                    analysis_data['jc_odds'] = jc_odds
                 return analysis_data
         except Exception as e:
             print(f"获取分析页面失败: {e}")
@@ -244,6 +248,86 @@ class MatchScraper:
         except Exception as e:
             print(f"获取走势数据失败: {e}")
             return []
+
+    def fetch_jc_odds(self, schedule_id: str) -> Dict:
+        """获取竞彩指数数据 - 从live.titan007.com/jsData/获取sOdds"""
+        try:
+            path = schedule_id[:2] + "/" + schedule_id[2:4] + "/"
+            url = f"https://live.titan007.com/jsData/{path}{schedule_id}.js"
+            response = self.session.get(url, timeout=10)
+            if response.status_code != 200:
+                return {}
+            content = response.content.decode('utf-8', errors='replace')
+            return self._parse_jc_odds(content)
+        except Exception as e:
+            print(f"获取竞彩指数失败: {e}")
+            return {}
+
+    def _parse_jc_odds(self, content: str) -> Dict:
+        """解析sOdds竞彩指数数据
+        sOdds[0] = [时间, 主分, 客分,
+          让球半场: [3]主水,[4]盘口,[5]客水,[6]主水即时,[7]盘口即时,[8]客水即时,
+          让球全场: [9]主水,[10]盘口,[11]客水,[12]主水即时,[13]盘口即时,[14]客水即时,
+          进球数半场: [15]大水,[16]盘口,[17]小水,[18]大水即时,[19]盘口即时,[20]小水即时,
+          进球数全场: [21]大水,[22]盘口,[23]小水,[24]大水即时,[25]盘口即时,[26]小水即时,
+          欧指半场: [27]主胜,[28]平局,[29]客胜,[30]主胜即时,[31]平局即时,[32]客胜即时,
+          欧指全场: [33]主胜,[34]平局,[35]客胜,[36]主胜即时,[37]平局即时,[38]客胜即时,
+          [39]状态, ...
+        ]
+        """
+        match = re.search(r'var\s+sOdds\s*=\s*\[\[(.+?)\]\]', content)
+        if not match:
+            return {}
+        raw = match.group(1)
+        vals = raw.split(',')
+        if len(vals) < 39:
+            return {}
+
+        def safe_float(idx):
+            try:
+                v = vals[idx].strip().strip("'\"")
+                return v if v else ''
+            except:
+                return ''
+
+        return {
+            'asian_half_init_home': safe_float(3),
+            'asian_half_init_hcp': safe_float(4),
+            'asian_half_init_away': safe_float(5),
+            'asian_half_curr_home': safe_float(6),
+            'asian_half_curr_hcp': safe_float(7),
+            'asian_half_curr_away': safe_float(8),
+            'asian_full_init_home': safe_float(9),
+            'asian_full_init_hcp': safe_float(10),
+            'asian_full_init_away': safe_float(11),
+            'asian_full_curr_home': safe_float(12),
+            'asian_full_curr_hcp': safe_float(13),
+            'asian_full_curr_away': safe_float(14),
+            'goal_half_init_big': safe_float(15),
+            'goal_half_init_line': safe_float(16),
+            'goal_half_init_small': safe_float(17),
+            'goal_half_curr_big': safe_float(18),
+            'goal_half_curr_line': safe_float(19),
+            'goal_half_curr_small': safe_float(20),
+            'goal_full_init_big': safe_float(21),
+            'goal_full_init_line': safe_float(22),
+            'goal_full_init_small': safe_float(23),
+            'goal_full_curr_big': safe_float(24),
+            'goal_full_curr_line': safe_float(25),
+            'goal_full_curr_small': safe_float(26),
+            'eu_half_init_home': safe_float(27),
+            'eu_half_init_draw': safe_float(28),
+            'eu_half_init_away': safe_float(29),
+            'eu_half_curr_home': safe_float(30),
+            'eu_half_curr_draw': safe_float(31),
+            'eu_half_curr_away': safe_float(32),
+            'eu_full_init_home': safe_float(33),
+            'eu_full_init_draw': safe_float(34),
+            'eu_full_init_away': safe_float(35),
+            'eu_full_curr_home': safe_float(36),
+            'eu_full_curr_draw': safe_float(37),
+            'eu_full_curr_away': safe_float(38),
+        }
 
     def _parse_odds_trend(self, content: str) -> List[Dict]:
         """解析走势数据 - /analysis/odds/ 响应格式
@@ -1367,14 +1451,23 @@ class MatchDisplayApp:
         curr_home = ''
         curr_draw = ''
         curr_away = ''
-        instant = analysis_data.get('instant_eu_odds', {}) if analysis_data else {}
-        if instant:
-            init_home = instant.get('init_home', '')
-            init_draw = instant.get('init_draw', '')
-            init_away = instant.get('init_away', '')
-            curr_home = instant.get('curr_home', '')
-            curr_draw = instant.get('curr_draw', '')
-            curr_away = instant.get('curr_away', '')
+        jc = analysis_data.get('jc_odds', {}) if analysis_data else {}
+        if jc:
+            init_home = jc.get('eu_full_init_home', '')
+            init_draw = jc.get('eu_full_init_draw', '')
+            init_away = jc.get('eu_full_init_away', '')
+            curr_home = jc.get('eu_full_curr_home', '')
+            curr_draw = jc.get('eu_full_curr_draw', '')
+            curr_away = jc.get('eu_full_curr_away', '')
+        if not init_home:
+            instant = analysis_data.get('instant_eu_odds', {}) if analysis_data else {}
+            if instant:
+                init_home = instant.get('init_home', '')
+                init_draw = instant.get('init_draw', '')
+                init_away = instant.get('init_away', '')
+                curr_home = instant.get('curr_home', '')
+                curr_draw = instant.get('curr_draw', '')
+                curr_away = instant.get('curr_away', '')
         if not init_home:
             odds_trend = analysis_data.get('odds_trend', []) if analysis_data else []
             for item in odds_trend:
