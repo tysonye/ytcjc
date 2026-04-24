@@ -139,17 +139,28 @@ class MatchScraper:
                 else:
                     match_time = ""
                 
-                # 获取盘口数据
+                # 获取盘口和赔率数据
                 handicap = fields[22] if len(fields) > 22 else ""  # 让球/盘口
                 
-                # 数据源中只有盘口数据，欧洲指数需要从网页获取
-                # 这里先使用盘口数据作为占位
-                init_home_odd = ""
-                init_draw_odd = ""
-                init_away_odd = ""
-                curr_home_odd = ""
-                curr_draw_odd = ""
-                curr_away_odd = ""
+                # 提取各种赔率信息
+                # 初盘赔率
+                init_home_odd = fields[16] if len(fields) > 16 else ""
+                init_draw_odd = fields[17] if len(fields) > 17 else ""
+                init_away_odd = fields[18] if len(fields) > 18 else ""
+                
+                # 即时赔率
+                curr_home_odd = fields[19] if len(fields) > 19 else ""
+                curr_draw_odd = fields[20] if len(fields) > 20 else ""
+                curr_away_odd = fields[21] if len(fields) > 21 else ""
+                
+                # 大小球赔率
+                over_under = fields[24] if len(fields) > 24 else ""
+                big_odd = fields[25] if len(fields) > 25 else ""
+                small_odd = fields[26] if len(fields) > 26 else ""
+                
+                # 其他数据
+                odd_change = fields[23] if len(fields) > 23 else ""
+                weather = fields[4] if len(fields) > 4 else ""
                 
                 match_info = {
                     'match_id': match_id.strip(),
@@ -168,6 +179,11 @@ class MatchScraper:
                     'curr_home_odd': curr_home_odd,
                     'curr_draw_odd': curr_draw_odd,
                     'curr_away_odd': curr_away_odd,
+                    'over_under': over_under,
+                    'big_odd': big_odd,
+                    'small_odd': small_odd,
+                    'odd_change': odd_change,
+                    'weather': weather,
                     'raw_data': fields
                 }
                 matches.append(match_info)
@@ -790,8 +806,7 @@ class MatchDisplayApp:
         return self.parse_web_content("", match)
     
     def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 清晰显示比赛信息"""
-        # 构建清晰的内容
+        """解析网页内容 - 清晰显示比赛信息和赔率"""
         lines = []
         lines.append("")
         lines.append("")
@@ -828,6 +843,52 @@ class MatchDisplayApp:
         if score:
             lines.append(f"           比分: {score}")
         
+        weather = match.get('weather', '')
+        if weather:
+            lines.append(f"           天气: {weather}")
+        
+        lines.append("")
+        lines.append("")
+        
+        # 胜平负赔率
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 胜平负赔率 】")
+        lines.append("")
+        
+        init_home = match.get('init_home_odd', '')
+        init_draw = match.get('init_draw_odd', '')
+        init_away = match.get('init_away_odd', '')
+        
+        if init_home or init_draw or init_away:
+            lines.append(f"           初盘:")
+            lines.append(f"                  主胜: {init_home}")
+            lines.append(f"                  平局: {init_draw}")
+            lines.append(f"                  客胜: {init_away}")
+        
+        curr_home = match.get('curr_home_odd', '')
+        curr_draw = match.get('curr_draw_odd', '')
+        curr_away = match.get('curr_away_odd', '')
+        
+        if curr_home or curr_draw or curr_away:
+            lines.append(f"           即时:")
+            lines.append(f"                  主胜: {curr_home}")
+            lines.append(f"                  平局: {curr_draw}")
+            lines.append(f"                  客胜: {curr_away}")
+        
+        odd_change = match.get('odd_change', '')
+        if odd_change:
+            lines.append(f"           变化: {odd_change}")
+        
+        lines.append("")
+        lines.append("")
+        
+        # 让球盘口
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 让球盘口 】")
+        lines.append("")
+        
         handicap = match.get('handicap', '')
         if handicap:
             try:
@@ -841,6 +902,24 @@ class MatchDisplayApp:
                 lines.append(f"           盘口: {handicap} ({handicap_text})")
             except:
                 lines.append(f"           盘口: {handicap}")
+        
+        lines.append("")
+        lines.append("")
+        
+        # 大小球赔率
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 大小球赔率 】")
+        lines.append("")
+        
+        over_under = match.get('over_under', '')
+        big_odd = match.get('big_odd', '')
+        small_odd = match.get('small_odd', '')
+        
+        if over_under or big_odd or small_odd:
+            lines.append(f"           盘口: {over_under}")
+            lines.append(f"           大球: {big_odd}")
+            lines.append(f"           小球: {small_odd}")
         
         lines.append("")
         lines.append("")
