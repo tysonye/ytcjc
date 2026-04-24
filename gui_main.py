@@ -760,13 +760,11 @@ class MatchDisplayApp:
         info_frame.pack(fill=tk.X, pady=int(12*s), padx=int(15*s))
         info_frame.bind('<Button-1>', on_click)
 
-        # 获取比分
-        score = match.get('score', '')
-        home_score = ''
-        away_score = ''
+        # 获取比分 - 使用独立字段
+        home_score = match.get('home_score', '')
+        away_score = match.get('away_score', '')
         has_score = False
-        if score and ':' in score:
-            home_score, away_score = score.split(':')
+        if home_score and home_score != '0' or away_score and away_score != '0':
             has_score = True
 
         # 主队信息
