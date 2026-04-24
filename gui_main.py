@@ -12,18 +12,31 @@ from bs4 import BeautifulSoup
 class MatchScraper:
     """竞彩足球比赛数据爬虫"""
     
-    def __init__(self, url: str = "https://jc.titan007.com/xml/bf_jc.txt"):
-        self.url = url
+    def __init__(self):
+        self.today_url = "https://jc.titan007.com/xml/bf_jc.txt"
+        self.history_url = "https://jc.titan007.com/handle/JcResult.aspx"
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         })
     
-    def fetch_page(self) -> Optional[str]:
+    def get_url_for_date(self, date_str: str) -> str:
+        """根据日期获取对应的URL"""
+        from datetime import datetime
+        today = datetime.now().strftime('%Y-%m-%d')
+        if date_str == today:
+            # 今天使用当天的接口
+            return self.today_url
+        else:
+            # 历史日期使用历史接口
+            return f"{self.history_url}?d={date_str}"
+    
+    def fetch_page(self, url: Optional[str] = None) -> Optional[str]:
         """获取网页内容"""
         try:
-            response = self.session.get(self.url, timeout=10)
+            target_url = url or self.base_url
+            response = self.session.get(target_url, timeout=10)
             if response.status_code == 200:
                 content = response.content.decode('utf-8')
                 return content
@@ -164,9 +177,15 @@ class MatchScraper:
         
         return matches
     
-    def get_all_matches(self) -> List[Dict]:
+    def get_all_matches(self, date_str: Optional[str] = None) -> List[Dict]:
         """获取所有比赛数据"""
-        content = self.fetch_page()
+        from datetime import datetime
+        if not date_str:
+            date_str = datetime.now().strftime('%Y-%m-%d')
+        
+        url = self.get_url_for_date(date_str)
+        content = self.fetch_page(url)
+        
         if not content:
             return []
         
@@ -363,6 +382,31 @@ class MatchDisplayApp:
         label_font_size = max(8, int(12 * self.scale))
         tk.Label(
             control_frame,
+            text="日期选择:",
+            font=('Microsoft YaHei', label_font_size),
+            fg='#ffffff',
+            bg='#1a1a2e'
+        ).pack(side=tk.LEFT, padx=self.get_pad(10))
+
+        # 生成最近7天的日期列表
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        date_list = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(-3, 4)]
+        self.date_var = tk.StringVar(value=today.strftime('%Y-%m-%d'))
+        combo_font_size = max(8, int(11 * self.scale))
+        self.date_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.date_var,
+            state="readonly",
+            width=12,
+            font=('Microsoft YaHei', combo_font_size),
+            values=date_list
+        )
+        self.date_combo.pack(side=tk.LEFT, padx=self.get_pad(5))
+        self.date_combo.bind('<<ComboboxSelected>>', self.on_date_selected)
+
+        tk.Label(
+            control_frame,
             text="联赛筛选:",
             font=('Microsoft YaHei', label_font_size),
             fg='#ffffff',
@@ -531,15 +575,19 @@ class MatchDisplayApp:
         )
         welcome_label.pack(expand=True)
     
-    def refresh_data(self):
+    def refresh_data(self, date_str: Optional[str] = None):
         """刷新数据"""
+        # 如果没有传入日期，使用下拉框中选择的日期
+        if not date_str:
+            date_str = self.date_var.get()
+        
         # 禁用刷新按钮防止重复点击
         self.stats_label.config(text="加载中...")
         
         # 使用线程获取数据，避免界面卡顿
         def fetch_thread():
             try:
-                self.matches = self.scraper.get_all_matches()
+                self.matches = self.scraper.get_all_matches(date_str)
                 self.root.after(0, self.on_data_loaded)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("错误", f"获取数据失败：{e}"))
@@ -547,6 +595,11 @@ class MatchDisplayApp:
         
         thread = threading.Thread(target=fetch_thread, daemon=True)
         thread.start()
+    
+    def on_date_selected(self, event=None):
+        """日期选择变化时刷新数据"""
+        date_str = self.date_var.get()
+        self.refresh_data(date_str)
     
     def on_data_loaded(self):
         """数据加载完成"""
@@ -564,8 +617,6 @@ class MatchDisplayApp:
         
         # 过滤并显示
         self.filter_matches()
-        
-        messagebox.showinfo("成功", f"成功获取 {len(self.matches)} 场比赛数据")
     
     def filter_matches(self, event=None):
         """过滤比赛"""
