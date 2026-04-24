@@ -388,10 +388,10 @@ class MatchDisplayApp:
             bg='#1a1a2e'
         ).pack(side=tk.LEFT, padx=self.get_pad(10))
 
-        # 生成最近7天的日期列表
+        # 生成往前7天的日期列表（包含今天）
         from datetime import datetime, timedelta
         today = datetime.now()
-        date_list = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(-3, 4)]
+        date_list = [(today + timedelta(days=-i)).strftime('%Y-%m-%d') for i in range(7)]
         self.date_var = tk.StringVar(value=today.strftime('%Y-%m-%d'))
         combo_font_size = max(8, int(11 * self.scale))
         self.date_combo = ttk.Combobox(
