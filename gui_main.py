@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 import threading
 from bs4 import BeautifulSoup
+from odds_display import OddsTableDisplay
 
 
 class MatchScraper:
@@ -713,75 +714,10 @@ class MatchDisplayApp:
         for widget in self.matches_list_frame.winfo_children():
             widget.destroy()
         
-        if self.filtered_matches:
-            # 添加专业表格表头
-            header_frame = tk.Frame(self.matches_list_frame, bg='#e94560', padx=5, pady=5)
-            header_frame.pack(fill=tk.X, padx=10, pady=2)
-            
-            # 表头行1 - 标题
-            title_label = tk.Label(header_frame, text="🏆 赛事数据表", 
-                                  font=('Microsoft YaHei', 12, 'bold'), 
-                                  fg='#ffffff', bg='#e94560')
-            title_label.pack(side=tk.LEFT, padx=20)
-            
-            # 表头行2 - 列标题
-            col_header_frame = tk.Frame(self.matches_list_frame, bg='#0f3460', padx=5, pady=3)
-            col_header_frame.pack(fill=tk.X, padx=10)
-            
-            # 列标题
-            cols = ["赛事ID", "主队", "比分", "客队", "胜", "平", "负", "让球"]
-            widths = [8, 18, 8, 18, 6, 6, 6, 10]
-            colors = ['#ffd700', '#00ff88', '#ffd700', '#ff6b6b', '#ff0000', '#00ff00', '#0000ff', '#ffd700']
-            
-            # 添加第一个列标题
-            id_header = tk.Label(col_header_frame, text=cols[0], font=('Consolas', 9, 'bold'), 
-                               fg=colors[0], bg='#0f3460', width=widths[0], anchor='center')
-            id_header.pack(side=tk.LEFT, padx=1)
-            
-            # 添加主队标题
-            home_header = tk.Label(col_header_frame, text=cols[1], font=('Microsoft YaHei', 9, 'bold'), 
-                                fg=colors[1], bg='#0f3460', width=widths[1], anchor='e')
-            home_header.pack(side=tk.LEFT, padx=1)
-            
-            # 添加比分标题
-            score_header = tk.Label(col_header_frame, text=cols[2], font=('Consolas', 9, 'bold'), 
-                                 fg=colors[2], bg='#0f3460', width=widths[2], anchor='center')
-            score_header.pack(side=tk.LEFT, padx=1)
-            
-            # 添加客队标题
-            away_header = tk.Label(col_header_frame, text=cols[3], font=('Microsoft YaHei', 9, 'bold'), 
-                                fg=colors[3], bg='#0f3460', width=widths[3], anchor='w')
-            away_header.pack(side=tk.LEFT, padx=1)
-            
-            # 添加胜平负标题
-            odds_title_frame = tk.Frame(col_header_frame, bg='#0f3460')
-            odds_title_frame.pack(side=tk.LEFT, padx=10)
-            
-            win_header = tk.Label(odds_title_frame, text=cols[4], font=('Consolas', 9, 'bold'), 
-                               fg=colors[4], bg='#0f3460', width=widths[4], anchor='center')
-            win_header.pack(side=tk.LEFT, padx=1)
-            
-            draw_header = tk.Label(odds_title_frame, text=cols[5], font=('Consolas', 9, 'bold'), 
-                                fg=colors[5], bg='#0f3460', width=widths[5], anchor='center')
-            draw_header.pack(side=tk.LEFT, padx=1)
-            
-            lose_header = tk.Label(odds_title_frame, text=cols[6], font=('Consolas', 9, 'bold'), 
-                               fg=colors[6], bg='#0f3460', width=widths[6], anchor='center')
-            lose_header.pack(side=tk.LEFT, padx=1)
-            
-            # 添加让球标题
-            handicap_header = tk.Label(col_header_frame, text=cols[7], font=('Consolas', 9, 'bold'), 
-                                    fg=colors[7], bg='#0f3460')
-            handicap_header.pack(side=tk.LEFT, padx=10)
-            
-            # 添加分隔线
-            separator = tk.Frame(self.matches_list_frame, bg='#e94560', height=2)
-            separator.pack(fill=tk.X, padx=10, pady=2)
-        
         # 显示比赛
         for i, match in enumerate(self.filtered_matches):
             match_card = self.create_match_card(match, i)
-            match_card.pack(fill=tk.X, padx=10, pady=2)
+            match_card.pack(fill=tk.X, padx=10, pady=5)
         
         if not self.filtered_matches:
             no_data_label = tk.Label(
@@ -795,132 +731,86 @@ class MatchDisplayApp:
     
     def create_match_card(self, match: Dict, index: int):
         s = self.scale
-        card = tk.Frame(self.matches_list_frame, bg='#16213e', cursor='hand2', padx=5, pady=3)
+        card = tk.Frame(self.matches_list_frame, bg='#1a1a2e', cursor='hand2')
         def on_click(event):
             self.show_match_detail(match)
-        
-        card.bind('<Button-1>', on_click)
-        
-        # 创建专业表格风格的卡片
-        table_frame = tk.Frame(card, bg='#16213e')
-        table_frame.pack(fill=tk.X)
-        table_frame.bind('<Button-1>', on_click)
-        
-        # 表格列：比赛ID | 时间 | 主队 | 比分 | 客队 | 胜 | 平 | 负 | 盘口
-        
-        # 第1行 - 顶部信息
-        top_row = tk.Frame(table_frame, bg='#0f3460')
-        top_row.pack(fill=tk.X)
-        top_row.bind('<Button-1>', on_click)
-        
-        # 比赛ID
+
+        top_frame = tk.Frame(card, bg='#e94560')
+        top_frame.pack(fill=tk.X)
+        top_frame.bind('<Button-1>', on_click)
+
         match_id = match.get('match_id', '')
-        id_label = tk.Label(top_row, text=match_id, font=('Consolas', max(8, int(10*s)), 'bold'), 
-                           fg='#ffd700', bg='#0f3460', width=8)
-        id_label.pack(side=tk.LEFT, padx=2)
-        id_label.bind('<Button-1>', on_click)
-        
-        # 联赛名
+        if match_id:
+            match_id_label = tk.Label(top_frame, text=match_id, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#e94560', padx=int(10*s), pady=int(5*s))
+            match_id_label.pack(side=tk.LEFT)
+            match_id_label.bind('<Button-1>', on_click)
+
         league_name = match.get('league', '')
-        league_label = tk.Label(top_row, text=league_name, font=('Microsoft YaHei', max(7, int(9*s))), 
-                               fg='#00ffff', bg='#0f3460')
-        league_label.pack(side=tk.LEFT, padx=2)
-        league_label.bind('<Button-1>', on_click)
-        
-        # 状态
-        status = match.get('status', '')
-        status_label = tk.Label(top_row, text=status, font=('Microsoft YaHei', max(7, int(9*s))), 
-                               fg='#00ff88', bg='#0f3460')
-        status_label.pack(side=tk.LEFT, padx=5)
-        status_label.bind('<Button-1>', on_click)
-        
-        # 比赛时间
+        if league_name:
+            league_label = tk.Label(top_frame, text=league_name, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#e94560', padx=int(10*s))
+            league_label.pack(side=tk.LEFT)
+            league_label.bind('<Button-1>', on_click)
+
         match_time = match.get('match_time', '')
-        time_label = tk.Label(top_row, text=match_time, font=('Consolas', max(8, int(10*s))), 
-                             fg='#ffffff', bg='#0f3460')
-        time_label.pack(side=tk.RIGHT, padx=5)
-        time_label.bind('<Button-1>', on_click)
-        
-        # 第2行 - 主要表格
-        data_row = tk.Frame(table_frame, bg='#16213e')
-        data_row.pack(fill=tk.X, pady=3)
-        data_row.bind('<Button-1>', on_click)
-        
-        # 主队
-        home_team = match.get('home_team', '')
-        home_label = tk.Label(data_row, text=home_team, font=('Microsoft YaHei', max(9, int(11*s)), 'bold'), 
-                             fg='#00ff88', bg='#16213e', width=18, anchor='e')
-        home_label.pack(side=tk.LEFT, padx=2)
-        home_label.bind('<Button-1>', on_click)
-        
-        # 比分
+        if match_time:
+            time_label = tk.Label(top_frame, text=match_time, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#e94560', padx=int(10*s))
+            time_label.pack(side=tk.RIGHT)
+            time_label.bind('<Button-1>', on_click)
+
+        info_frame = tk.Frame(card, bg='#1a1a2e')
+        info_frame.pack(fill=tk.X, pady=int(12*s), padx=int(15*s))
+        info_frame.bind('<Button-1>', on_click)
+
+        # 获取比分 - 使用独立字段
         home_score = match.get('home_score', '')
         away_score = match.get('away_score', '')
         has_score = False
         if home_score and home_score != '0' or away_score and away_score != '0':
             has_score = True
-        
-        score_text = f"{home_score} - {away_score}" if has_score else "VS"
-        score_label = tk.Label(data_row, text=score_text, font=('Consolas', max(10, int(14*s)), 'bold'), 
-                              fg='#ffd700', bg='#16213e', width=8, anchor='center')
-        score_label.pack(side=tk.LEFT, padx=3)
-        score_label.bind('<Button-1>', on_click)
-        
-        # 客队
+
+        # 主队信息
+        home_team = match.get('home_team', '')
+        if home_team:
+            home_label = tk.Label(info_frame, text=home_team, font=('Microsoft YaHei', max(10, int(13*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
+            home_label.grid(row=0, column=0, sticky='w', padx=(0, 10))
+            home_label.bind('<Button-1>', on_click)
+
+        # 比分显示
+        if has_score:
+            score_text = f"{home_score} - {away_score}"
+            score_label = tk.Label(info_frame, text=score_text, font=('Microsoft YaHei', max(12, int(18*s)), 'bold'), fg='#ffd700', bg='#1a1a2e')
+            score_label.grid(row=0, column=1, rowspan=2, padx=10)
+            score_label.bind('<Button-1>', on_click)
+
+        # 客队信息
         away_team = match.get('away_team', '')
-        away_label = tk.Label(data_row, text=away_team, font=('Microsoft YaHei', max(9, int(11*s)), 'bold'), 
-                             fg='#ff6b6b', bg='#16213e', width=18, anchor='w')
-        away_label.pack(side=tk.LEFT, padx=2)
-        away_label.bind('<Button-1>', on_click)
-        
-        # 胜平负赔率
-        odds_frame = tk.Frame(data_row, bg='#16213e')
-        odds_frame.pack(side=tk.LEFT, padx=10)
-        odds_frame.bind('<Button-1>', on_click)
-        
-        # 初盘赔率
-        init_home = match.get('init_home_odd', '')
-        init_draw = match.get('init_draw_odd', '')
-        init_away = match.get('init_away_odd', '')
-        
-        # 即时赔率
-        curr_home = match.get('curr_home_odd', '')
-        curr_draw = match.get('curr_draw_odd', '')
-        curr_away = match.get('curr_away_odd', '')
-        
-        # 胜
-        home_odd_text = curr_home if curr_home else init_home
-        home_odd_label = tk.Label(odds_frame, text=f"{home_odd_text}", 
-                                 font=('Consolas', max(9, int(11*s))), 
-                                 fg='#ff0000', bg='#16213e', width=6, anchor='center')
-        home_odd_label.pack(side=tk.LEFT, padx=1)
-        home_odd_label.bind('<Button-1>', on_click)
-        
-        # 平
-        draw_odd_text = curr_draw if curr_draw else init_draw
-        draw_odd_label = tk.Label(odds_frame, text=f"{draw_odd_text}", 
-                                 font=('Consolas', max(9, int(11*s))), 
-                                 fg='#00ff00', bg='#16213e', width=6, anchor='center')
-        draw_odd_label.pack(side=tk.LEFT, padx=1)
-        draw_odd_label.bind('<Button-1>', on_click)
-        
-        # 负
-        away_odd_text = curr_away if curr_away else init_away
-        away_odd_label = tk.Label(odds_frame, text=f"{away_odd_text}", 
-                                 font=('Consolas', max(9, int(11*s))), 
-                                 fg='#0000ff', bg='#16213e', width=6, anchor='center')
-        away_odd_label.pack(side=tk.LEFT, padx=1)
-        away_odd_label.bind('<Button-1>', on_click)
-        
-        # 让球盘口
+        if away_team:
+            away_label = tk.Label(info_frame, text=away_team, font=('Microsoft YaHei', max(10, int(13*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
+            away_label.grid(row=1, column=0, sticky='w', padx=(0, 10), pady=(5, 0))
+            away_label.bind('<Button-1>', on_click)
+
+        # 配置Grid列权重
+        info_frame.columnconfigure(0, weight=1)
+        info_frame.columnconfigure(1, weight=0)
+
+        status_frame = tk.Frame(card, bg='#0f3460')
+        status_frame.pack(fill=tk.X)
+        status_frame.bind('<Button-1>', on_click)
+
+        status = match.get('status', '')
+        if status:
+            status_label = tk.Label(status_frame, text=status, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#0f3460', padx=int(10*s), pady=int(5*s))
+            status_label.pack(side=tk.LEFT)
+            status_label.bind('<Button-1>', on_click)
+
         handicap = match.get('handicap', '')
         if handicap:
-            handicap_label = tk.Label(data_row, text=f"让球: {handicap}", 
-                                    font=('Consolas', max(8, int(10*s))), 
-                                    fg='#ffd700', bg='#16213e')
-            handicap_label.pack(side=tk.LEFT, padx=10)
+            odds_frame = tk.Frame(status_frame, bg='#1a1a2e')
+            odds_frame.pack(side=tk.RIGHT, padx=int(5*s))
+            handicap_label = tk.Label(odds_frame, text=f"盘口：{handicap}", font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#00ffff', bg='#1a1a2e', padx=int(10*s))
+            handicap_label.pack(side=tk.RIGHT)
             handicap_label.bind('<Button-1>', on_click)
-        
+
         return card
     
     def fetch_web_analysis(self, match: Dict) -> str:
@@ -1078,6 +968,8 @@ class MatchDisplayApp:
     def display_web_analysis(self, match: Dict, web_data: str, loading_label):
         s = self.scale
         loading_label.destroy()
+        
+        # 创建Canvas和滚动条
         canvas = tk.Canvas(self.detail_frame, bg='#0f3460', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg='#0f3460')
@@ -1111,53 +1003,20 @@ class MatchDisplayApp:
         self.detail_frame.bind("<Enter>", on_enter_detail)
         self.detail_frame.bind("<Leave>", on_leave_detail)
         
-        if web_data:
-            # 美化显示
-            lines = web_data.split('\n')
-            for line in lines:
-                line = line.rstrip()
-                if not line:
-                    line = ' '
-                
-                # 专业表格颜色方案
-                fg_color = '#c0c0c0'
-                bg_color = '#0f3460'
-                font_size = max(10, int(12*s))
-                font_weight = 'normal'
-                anchor = 'w'
-                
-                # 根据内容类型
-                if 'VS' in line:
-                    fg_color = '#ffd700'
-                    font_weight = 'bold'
-                    font_size = max(14, int(16*s))
-                    anchor = 'center'
-                elif '┌' in line or '└' in line or '├' in line or '┤' in line or '│' in line or '─' in line:
-                    fg_color = '#00ffff'
-                elif '基本信息' in line or '胜平负赔率' in line or '让球盘口' in line or '其他信息' in line or '欧洲指数' in line or '亚洲盘口' in line:
-                    fg_color = '#00ff88'
-                    font_weight = 'bold'
-                    font_size = max(12, int(14*s))
-                elif '联赛:' in line or '状态:' in line or '时间:' in line or '比分:' in line or '盘口:' in line or '说明:' in line or '比赛ID:' in line:
-                    fg_color = '#00ffff'
-                elif '类型' in line or '主胜' in line or '平局' in line or '客胜' in line or '公司' in line or '让球' in line:
-                    fg_color = '#ff6b6b'
-                    font_weight = 'bold'
-                elif '初盘' in line or '即时' in line:
-                    fg_color = '#ffd700'
-                else:
-                    fg_color = '#e0e0e0'
-                
-                line_label = tk.Label(
-                    scrollable_frame,
-                    text=line,
-                    font=('Consolas', font_size, font_weight),
-                    fg=fg_color,
-                    bg=bg_color,
-                    justify=tk.LEFT,
-                    anchor=anchor
-                )
-                line_label.pack(fill=tk.X, padx=int(10*s), pady=int(1*s))
+        # 使用新的专业表格显示
+        odds_display = OddsTableDisplay(scrollable_frame, s)
+        
+        # 创建信息卡片
+        odds_display.create_info_card(match)
+        
+        # 创建比分统计
+        odds_display.create_match_stats(match)
+        
+        # 创建欧洲指数表格
+        odds_display.create_european_odds_table(match)
+        
+        # 创建亚洲盘口表格
+        odds_display.create_asian_handicap_table(match)
     
     def show_match_detail(self, match: Dict):
         s = self.scale
