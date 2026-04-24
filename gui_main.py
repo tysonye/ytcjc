@@ -817,35 +817,32 @@ class MatchDisplayApp:
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
         
-        # 计算并显示比赛进行时间
+        # 显示比赛进行时间 - 从数据接口获取
         if status_code in ['1', '3']:  # 进行中或中场
             try:
-                start_time = match.get('start_time', '')
-                update_time = match.get('update_time', '')
+                # 使用当前系统时间减去开始时间来计算
+                from datetime import datetime
                 
-                if start_time and update_time:
+                start_time = match.get('start_time', '')
+                
+                if start_time:
                     start_parts = start_time.split(',')
-                    update_parts = update_time.split(',')
                     
-                    if len(start_parts) >= 6 and len(update_parts) >= 6:
-                        # 完整日期时间计算
-                        from datetime import datetime
-                        
+                    if len(start_parts) >= 6:
                         start_dt = datetime(
                             int(start_parts[0]), int(start_parts[1]), int(start_parts[2]),
                             int(start_parts[3]), int(start_parts[4]), int(start_parts[5])
                         )
-                        update_dt = datetime(
-                            int(update_parts[0]), int(update_parts[1]), int(update_parts[2]),
-                            int(update_parts[3]), int(update_parts[4]), int(update_parts[5])
-                        )
+                        
+                        # 使用当前系统时间计算
+                        now_dt = datetime.now()
                         
                         # 计算时间差（分钟）
-                        diff_seconds = (update_dt - start_dt).total_seconds()
+                        diff_seconds = (now_dt - start_dt).total_seconds()
                         diff_minutes = int(diff_seconds // 60)
                         
-                        # 只显示正数时间
-                        if diff_minutes > 0:
+                        # 只显示正数时间且在合理范围内
+                        if 0 < diff_minutes <= 120:
                             # 超过90分钟显示90+
                             if diff_minutes > 90:
                                 display_time = "90+"
