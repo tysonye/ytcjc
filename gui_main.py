@@ -493,20 +493,25 @@ class MatchDisplayApp:
             bg='#16213e'
         )
 
-        def on_frame_configure(event):
+        # 窗口ID，用于后续操作
+        self.list_window_id = None
+        
+        def on_canvas_config(event):
+            # 当 canvas 大小改变时，更新内部 frame 宽度
+            if self.list_window_id:
+                self.list_canvas.itemconfig(self.list_window_id, width=event.width)
             # 更新滚动区域
             self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
-            # 更新frame宽度以匹配canvas
-            self.list_canvas.itemconfig("frame_window", width=event.width)
-
-        def on_canvas_configure(event):
-            # 当canvas大小改变时，更新frame的宽度
-            self.list_canvas.itemconfig("frame_window", width=event.width)
-
-        self.matches_list_frame.bind("<Configure>", on_frame_configure)
-        self.list_canvas.bind("<Configure>", on_canvas_configure)
-
-        self.list_canvas.create_window((0, 0), window=self.matches_list_frame, anchor="nw", tags="frame_window")
+        
+        def on_frame_config(event):
+            # 更新滚动区域
+            self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
+        
+        self.list_canvas.bind("<Configure>", on_canvas_config)
+        self.matches_list_frame.bind("<Configure>", on_frame_config)
+        
+        # 创建窗口
+        self.list_window_id = self.list_canvas.create_window((0, 0), window=self.matches_list_frame, anchor="nw")
         self.list_canvas.configure(yscrollcommand=scrollbar.set)
 
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -555,20 +560,31 @@ class MatchDisplayApp:
             return
         
         try:
+            # 获取当前滚动位置
+            current_pos = canvas.yview()
+            
             if event.num == 4 or event.num == 5:
                 # Linux/macOS
                 if event.num == 4:
-                    canvas.yview_scroll(-1, "units")
+                    # 向上滚动
+                    if current_pos[0] > 0:
+                        canvas.yview_scroll(-1, "units")
                 else:
-                    canvas.yview_scroll(1, "units")
+                    # 向下滚动
+                    if current_pos[1] < 1:
+                        canvas.yview_scroll(1, "units")
             else:
                 # Windows
-                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                delta = int(-1*(event.delta/120))
+                if delta < 0:
+                    # 向上滚动
+                    if current_pos[0] > 0:
+                        canvas.yview_scroll(delta, "units")
+                else:
+                    # 向下滚动
+                    if current_pos[1] < 1:
+                        canvas.yview_scroll(delta, "units")
             
-            # 确保滚动不会超出边界
-            scroll_pos = canvas.yview()
-            if scroll_pos[0] < 0:
-                canvas.yview_moveto(0)
         except Exception as e:
             print(f"滚动错误: {e}")
     
@@ -854,17 +870,21 @@ class MatchDisplayApp:
         scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg='#0f3460')
         
-        def on_detail_frame_configure(event):
+        # 窗口ID
+        detail_window_id = None
+        
+        def on_detail_canvas_config(event):
+            if detail_window_id:
+                canvas.itemconfig(detail_window_id, width=event.width)
             canvas.configure(scrollregion=canvas.bbox("all"))
-            canvas.itemconfig("detail_frame_window", width=event.width)
         
-        def on_detail_canvas_configure(event):
-            canvas.itemconfig("detail_frame_window", width=event.width)
+        def on_detail_frame_config(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
         
-        scrollable_frame.bind("<Configure>", on_detail_frame_configure)
-        canvas.bind("<Configure>", on_detail_canvas_configure)
+        canvas.bind("<Configure>", on_detail_canvas_config)
+        scrollable_frame.bind("<Configure>", on_detail_frame_config)
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", tags="detail_frame_window")
+        detail_window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
