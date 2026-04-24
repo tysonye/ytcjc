@@ -150,12 +150,13 @@ class MatchScraper:
                 if len(time_parts) >= 5:
                     match_time = f"{time_parts[3]}:{time_parts[4]}"
                 
-                # 状态映射
+                # 状态映射 - 重新分类
+                # 0=未开始, 1=上半场, 2=已完场, 3=下半场/加时, -1=已完场
                 status_map = {
                     '0': '未开始',
-                    '1': '进行中',
+                    '1': '上半场',
                     '2': '已完场',
-                    '3': '中场',
+                    '3': '下半场',
                     '-1': '已完场'
                 }
                 status_text = status_map.get(status_code, '未知')
@@ -817,8 +818,8 @@ class MatchDisplayApp:
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
         
-        # 显示比赛进行时间
-        if status_code in ['1', '3']:  # 进行中或中场
+        # 显示比赛进行时间 - 根据赛事阶段显示
+        if status_code in ['1', '3']:  # 上半场或下半场
             try:
                 from datetime import datetime
                 
@@ -845,9 +846,20 @@ class MatchDisplayApp:
                         
                         # 只显示正数时间
                         if diff > 0:
-                            # 超过90分钟显示90+
-                            if diff > 90:
-                                display_time = "90+"
+                            # 根据赛事阶段调整时间显示
+                            if status_code == '1':  # 上半场
+                                # 上半场最多45分钟
+                                if diff > 45:
+                                    display_time = "45+"
+                                else:
+                                    display_time = f"{diff}'"
+                            elif status_code == '3':  # 下半场
+                                # 下半场从45分钟开始计算
+                                second_half_diff = diff - 45
+                                if second_half_diff > 45:
+                                    display_time = "90+"
+                                else:
+                                    display_time = f"{diff}'"
                             else:
                                 display_time = f"{diff}'"
                             
