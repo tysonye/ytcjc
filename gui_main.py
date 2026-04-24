@@ -817,10 +817,9 @@ class MatchDisplayApp:
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
         
-        # 显示比赛进行时间 - 从数据接口获取
+        # 显示比赛进行时间
         if status_code in ['1', '3']:  # 进行中或中场
             try:
-                # 使用当前系统时间减去开始时间来计算
                 from datetime import datetime
                 
                 start_time = match.get('start_time', '')
@@ -828,26 +827,29 @@ class MatchDisplayApp:
                 if start_time:
                     start_parts = start_time.split(',')
                     
-                    if len(start_parts) >= 6:
-                        start_dt = datetime(
-                            int(start_parts[0]), int(start_parts[1]), int(start_parts[2]),
-                            int(start_parts[3]), int(start_parts[4]), int(start_parts[5])
-                        )
+                    if len(start_parts) >= 5:
+                        # 获取开始时间的小时和分钟
+                        start_h = int(start_parts[3])
+                        start_m = int(start_parts[4])
                         
-                        # 使用当前系统时间计算
-                        now_dt = datetime.now()
+                        # 获取当前时间
+                        now = datetime.now()
+                        now_h = now.hour
+                        now_m = now.minute
                         
                         # 计算时间差（分钟）
-                        diff_seconds = (now_dt - start_dt).total_seconds()
-                        diff_minutes = int(diff_seconds // 60)
+                        start_total = start_h * 60 + start_m
+                        now_total = now_h * 60 + now_m
                         
-                        # 只显示正数时间且在合理范围内
-                        if 0 < diff_minutes <= 120:
+                        diff = now_total - start_total
+                        
+                        # 只显示正数时间
+                        if diff > 0:
                             # 超过90分钟显示90+
-                            if diff_minutes > 90:
+                            if diff > 90:
                                 display_time = "90+"
                             else:
-                                display_time = f"{diff_minutes}'"
+                                display_time = f"{diff}'"
                             
                             # 显示进行时间
                             time_frame = tk.Frame(status_frame, bg='#1a1a2e')
