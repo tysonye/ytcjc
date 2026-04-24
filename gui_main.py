@@ -817,75 +817,30 @@ class MatchDisplayApp:
             return f"获取数据失败：{e}"
     
     def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 格式化显示"""
-        soup = BeautifulSoup(html, 'html.parser')
-        
+        """解析网页内容 - 简化显示"""
         content = []
         content.append("=" * 80)
+        content.append(f"  比赛: {match.get('match_id', '')}")
         content.append(f"  {match.get('home_team', '')} VS {match.get('away_team', '')}")
         content.append("=" * 80)
         
-        tables = soup.find_all('table')
+        # 添加比赛基本信息
+        content.append(f"\n联赛: {match.get('league', '未知')}")
+        content.append(f"状态: {match.get('status', '未知')}")
+        content.append(f"时间: {match.get('match_time', '未知')}")
         
-        # 记录已处理的表格文本，避免重复
-        processed_tables = set()
+        score = match.get('score', '')
+        if score:
+            content.append(f"比分: {score}")
         
-        # 提取全场亚盘
-        content.append("\n【全场亚盘】")
-        content.append("-" * 60)
-        for table in tables:
-            table_text = table.get_text(strip=True)
-            if '全場' in table_text and '亚讓盤' in table_text and table_text not in processed_tables:
-                processed_tables.add(table_text)
-                rows = table.find_all('tr')
-                for row in rows:
-                    cells = row.find_all(['td', 'th'])
-                    row_data = [cell.get_text(strip=True) for cell in cells]
-                    if row_data and len(row_data) > 1:
-                        # 格式化行数据，更清晰的显示
-                        if len(row_data) >= 7:
-                            content.append(f"  {row_data[0]:<12} {row_data[1]:<10} {row_data[2]:<10} {row_data[3]:<10} {row_data[4]:<10} {row_data[5]:<10} {row_data[6]:<10}")
-                        else:
-                            content.append(f"  {' | '.join(row_data)}")
-                break
-        
-        # 提取半场亚盘
-        content.append("\n【半场亚盘】")
-        content.append("-" * 60)
-        for table in tables:
-            table_text = table.get_text(strip=True)
-            if '半場' in table_text and '亚讓盤' in table_text and table_text not in processed_tables:
-                processed_tables.add(table_text)
-                rows = table.find_all('tr')
-                for row in rows:
-                    cells = row.find_all(['td', 'th'])
-                    row_data = [cell.get_text(strip=True) for cell in cells]
-                    if row_data and len(row_data) > 1:
-                        if len(row_data) >= 7:
-                            content.append(f"  {row_data[0]:<12} {row_data[1]:<10} {row_data[2]:<10} {row_data[3]:<10} {row_data[4]:<10} {row_data[5]:<10} {row_data[6]:<10}")
-                        else:
-                            content.append(f"  {' | '.join(row_data)}")
-                break
-        
-        # 提取进球数
-        content.append("\n【进球数】")
-        content.append("-" * 60)
-        for table in tables:
-            table_text = table.get_text(strip=True)
-            if '進球數' in table_text and ('大球' in table_text or '小球' in table_text) and table_text not in processed_tables:
-                processed_tables.add(table_text)
-                rows = table.find_all('tr')
-                for row in rows:
-                    cells = row.find_all(['td', 'th'])
-                    row_data = [cell.get_text(strip=True) for cell in cells]
-                    if row_data and len(row_data) > 1:
-                        if len(row_data) >= 7:
-                            content.append(f"  {row_data[0]:<12} {row_data[1]:<10} {row_data[2]:<10} {row_data[3]:<10} {row_data[4]:<10} {row_data[5]:<10} {row_data[6]:<10}")
-                        else:
-                            content.append(f"  {' | '.join(row_data)}")
-                break
+        handicap = match.get('handicap', '')
+        if handicap:
+            content.append(f"盘口: {handicap}")
         
         content.append("\n" + "=" * 80)
+        content.append("\n注: 该网站有反爬机制，无法获取详细分析数据")
+        content.append("=" * 80)
+        
         return "\n".join(content)
     
     def display_web_analysis(self, match: Dict, web_data: str, loading_label):
