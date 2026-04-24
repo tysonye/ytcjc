@@ -128,7 +128,8 @@ class OddsTableDisplay:
         home_frame.pack(side=tk.LEFT, expand=True)
         tk.Label(home_frame, text=home_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
                 fg='#ff6b6b', bg='#1a5f9e').pack()
-        if home_score and home_score != '0':
+        # 显示比分，0也要显示
+        if home_score != '':
             tk.Label(home_frame, text=home_score, font=('Microsoft YaHei', max(16, int(20*s)), 'bold'),
                     fg='#ffd700', bg='#1a5f9e').pack()
         
@@ -143,7 +144,8 @@ class OddsTableDisplay:
         away_frame.pack(side=tk.LEFT, expand=True)
         tk.Label(away_frame, text=away_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
                 fg='#4ecdc4', bg='#1a5f9e').pack()
-        if away_score and away_score != '0':
+        # 显示比分，0也要显示
+        if away_score != '':
             tk.Label(away_frame, text=away_score, font=('Microsoft YaHei', max(16, int(20*s)), 'bold'),
                     fg='#ffd700', bg='#1a5f9e').pack()
         
@@ -209,15 +211,16 @@ class OddsTableDisplay:
     
     def create_match_stats(self, match: Dict):
         """创建比赛统计"""
-        home_score = match.get('home_score', '0')
-        away_score = match.get('away_score', '0')
-        home_half = match.get('home_half_score', '0')
-        away_half = match.get('away_half_score', '0')
+        home_score = match.get('home_score', '')
+        away_score = match.get('away_score', '')
+        home_half = match.get('home_half_score', '')
+        away_half = match.get('away_half_score', '')
         
+        # 0也要显示，只有空字符串才显示为-
         headers = ['', '全场', '半场']
         rows = [
-            ['主队', home_score or '0', home_half or '0'],
-            ['客队', away_score or '0', away_half or '0']
+            ['主队', home_score if home_score != '' else '-', home_half if home_half != '' else '-'],
+            ['客队', away_score if away_score != '' else '-', away_half if away_half != '' else '-']
         ]
         
         self.create_table('比分统计', headers, rows, [10, 10, 10], '#ffd700')
