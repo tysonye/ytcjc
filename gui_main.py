@@ -114,12 +114,12 @@ class MatchScraper:
                 away_team_id = fields[9] if len(fields) > 9 else ""
                 away_team_full = fields[10] if len(fields) > 10 else ""
                 
-                # 竞彩比分 (半场)
-                home_jc_score = fields[11] if len(fields) > 11 else ""
-                away_jc_score = fields[12] if len(fields) > 12 else ""
                 # 实际比分 (全场)
-                home_full_score = fields[13] if len(fields) > 13 else ""
-                away_full_score = fields[14] if len(fields) > 14 else ""
+                home_full_score = fields[11] if len(fields) > 11 else ""
+                away_full_score = fields[12] if len(fields) > 12 else ""
+                # 竞彩比分 (半场/其他)
+                home_jc_score = fields[13] if len(fields) > 13 else ""
+                away_jc_score = fields[14] if len(fields) > 14 else ""
                 
                 red_yellow = fields[15] if len(fields) > 15 else ""
                 init_home_odd = fields[16] if len(fields) > 16 else ""
