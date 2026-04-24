@@ -232,11 +232,118 @@ class MatchScraper:
             response.encoding = 'utf-8'
 
             if response.status_code == 200:
-                return self.parse_analysis_data(response.text)
+                analysis_data = self.parse_analysis_data(response.text)
+                # 获取即时走势赔率数据
+                odds_data = self.fetch_odds_trend(match_unique_id)
+                if odds_data:
+                    analysis_data['odds_trend'] = odds_data
+                return analysis_data
         except Exception as e:
             print(f"获取分析页面失败: {e}")
 
         return {}
+
+    def fetch_odds_trend(self, schedule_id: str) -> List[Dict]:
+        """获取即时走势赔率数据 - 让球/大小球/欧洲指数"""
+        try:
+            url = f"https://zq.titan007.com/analysis/odds/{schedule_id}.htm"
+            response = self.session.get(url, timeout=10)
+            if response.status_code != 200:
+                return []
+
+            content = response.content.decode('utf-8', errors='replace')
+            return self._parse_odds_trend(content)
+        except Exception as e:
+            print(f"获取走势数据失败: {e}")
+            return []
+
+    def _parse_odds_trend(self, content: str) -> List[Dict]:
+        """解析走势数据 - /analysis/odds/ 响应格式
+        格式: <input type='hidden' value='公司1数据^公司2数据...'>
+        每个公司: companyID;companyName;初盘;即时;滚球;状态
+        每组14值: 欧指(3)+欧转亚盘(4)+实际亚盘(4)+进球数(3)
+        """
+        results = []
+        value_match = re.search(r"value='([^']+)'", content)
+        if not value_match:
+            return results
+
+        raw_data = value_match.group(1)
+        company_entries = raw_data.split('^')
+
+        for entry in company_entries:
+            if not entry.strip():
+                continue
+            parts = entry.split(';')
+            if len(parts) < 5:
+                continue
+
+            company_id = parts[0]
+            company_name = parts[1]
+            init_str = parts[2].rstrip(',')
+            curr_str = parts[3].rstrip(',')
+            live_str = parts[4].rstrip(',') if len(parts) > 4 else ''
+
+            init_vals = init_str.split(',') if init_str else []
+            curr_vals = curr_str.split(',') if curr_str else []
+            live_vals = live_str.split(',') if live_str else []
+
+            def safe_get(arr, idx, default=''):
+                if idx < len(arr):
+                    v = arr[idx].strip()
+                    return v if v else default
+                return default
+
+            item = {
+                'company_id': company_id,
+                'company': company_name,
+                'eu_init_home': safe_get(init_vals, 0),
+                'eu_init_draw': safe_get(init_vals, 1),
+                'eu_init_away': safe_get(init_vals, 2),
+                'eua_init_home': safe_get(init_vals, 3),
+                'eua_init_handicap': safe_get(init_vals, 4),
+                'eua_init_away': safe_get(init_vals, 5),
+                'eua_init_total': safe_get(init_vals, 6),
+                'real_init_home': safe_get(init_vals, 7),
+                'real_init_handicap': safe_get(init_vals, 8),
+                'real_init_away': safe_get(init_vals, 9),
+                'real_init_total': safe_get(init_vals, 10),
+                'goal_init_big': safe_get(init_vals, 11),
+                'goal_init_line': safe_get(init_vals, 12),
+                'goal_init_small': safe_get(init_vals, 13),
+                'eu_curr_home': safe_get(curr_vals, 0),
+                'eu_curr_draw': safe_get(curr_vals, 1),
+                'eu_curr_away': safe_get(curr_vals, 2),
+                'eua_curr_home': safe_get(curr_vals, 3),
+                'eua_curr_handicap': safe_get(curr_vals, 4),
+                'eua_curr_away': safe_get(curr_vals, 5),
+                'eua_curr_total': safe_get(curr_vals, 6),
+                'real_curr_home': safe_get(curr_vals, 7),
+                'real_curr_handicap': safe_get(curr_vals, 8),
+                'real_curr_away': safe_get(curr_vals, 9),
+                'real_curr_total': safe_get(curr_vals, 10),
+                'goal_curr_big': safe_get(curr_vals, 11),
+                'goal_curr_line': safe_get(curr_vals, 12),
+                'goal_curr_small': safe_get(curr_vals, 13),
+                'eu_live_home': safe_get(live_vals, 0),
+                'eu_live_draw': safe_get(live_vals, 1),
+                'eu_live_away': safe_get(live_vals, 2),
+                'eua_live_home': safe_get(live_vals, 3),
+                'eua_live_handicap': safe_get(live_vals, 4),
+                'eua_live_away': safe_get(live_vals, 5),
+                'eua_live_total': safe_get(live_vals, 6),
+                'real_live_home': safe_get(live_vals, 7),
+                'real_live_handicap': safe_get(live_vals, 8),
+                'real_live_away': safe_get(live_vals, 9),
+                'real_live_total': safe_get(live_vals, 10),
+                'goal_live_big': safe_get(live_vals, 11),
+                'goal_live_line': safe_get(live_vals, 12),
+                'goal_live_small': safe_get(live_vals, 13),
+            }
+            results.append(item)
+
+        print(f"解析走势数据: {len(results)} 个公司")
+        return results
 
     def parse_analysis_data(self, html: str) -> Dict:
         """解析分析页面数据 - 增强版"""
@@ -1011,7 +1118,7 @@ class MatchDisplayApp:
             self.filtered_matches.append(match)
 
         # 更新统计
-        self.stats_label.config(text=f"显示：{len(self.filtered_matches)}/{len(self.matches)}")
+        self.stats_label.config(text=f"赛事数量：{len(self.filtered_matches)}/{len(self.matches)}")
 
         self.display_matches_list()
 

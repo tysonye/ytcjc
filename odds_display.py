@@ -4,6 +4,63 @@ from tkinter import ttk
 from typing import Dict, List
 
 
+GoalCn = ["平手", "平手/半球", "半球", "半球/一球", "一球", "一球/球半",
+          "球半", "球半/两球", "两球", "两球/两球半", "两球半", "两球半/三球",
+          "三球", "三球/三球半", "三球半", "三球半/四球", "四球", "四球/四球半",
+          "四球半", "四球半/五球", "五球", "五球/五球半", "五球半", "五球半/六球",
+          "六球", "六球/六球半", "六球半", "六球半/七球", "七球", "七球/七球半",
+          "七球半", "七球半/八球", "八球", "八球/八球半", "八球半", "八球半/九球",
+          "九球", "九球/九球半", "九球半", "九球半/十球", "十球"]
+
+GoalOU = ["0", "0/0.5", "0.5", "0.5/1", "1", "1/1.5", "1.5", "1.5/2", "2", "2/2.5",
+          "2.5", "2.5/3", "3", "3/3.5", "3.5", "3.5/4", "4", "4/4.5", "4.5", "4.5/5",
+          "5", "5/5.5", "5.5", "5.5/6", "6", "6/6.5", "6.5", "6.5/7", "7", "7/7.5",
+          "7.5", "7.5/8", "8", "8/8.5", "8.5", "8.5/9", "9", "9/9.5", "9.5", "9.5/10",
+          "10", "10/10.5", "10.5", "10.5/11", "11", "11/11.5", "11.5", "11.5/12",
+          "12", "12/12.5", "12.5", "12.5/13", "13", "13/13.5", "13.5", "13.5/14", "14"]
+
+GoalOU2 = ["0", "0/-0.5", "-0.5", "-0.5/-1", "-1", "-1/-1.5", "-1.5", "-1.5/-2",
+           "-2", "-2/-2.5", "-2.5", "-2.5/-3", "-3", "-3/-3.5", "-3.5", "-3.5/-4",
+           "-4", "-4/-4.5", "-4.5", "-4.5/-5", "-5", "-5/-5.5", "-5.5", "-5.5/-6",
+           "-6", "-6/-6.5", "-6.5", "-6.5/-7", "-7", "-7/-7.5", "-7.5", "-7.5/-8",
+           "-8", "-8/-8.5", "-8.5", "-8.5/-9", "-9", "-9/-9.5", "-9.5", "-9.5/-10",
+           "-10"]
+
+
+def goal2goal_cn(goal_str):
+    if not goal_str or goal_str.strip() == '':
+        return ''
+    try:
+        goal = float(goal_str)
+        idx = int(abs(goal) * 4)
+        if idx >= len(GoalCn):
+            return goal_str
+        if goal >= 0:
+            return GoalCn[idx]
+        else:
+            return "受让" + GoalCn[idx]
+    except (ValueError, TypeError):
+        return goal_str
+
+
+def goal2goal_ou(goal_str):
+    if not goal_str or goal_str.strip() == '':
+        return ''
+    try:
+        goal = float(goal_str)
+        idx = int(abs(goal) * 4)
+        if goal >= 0:
+            if idx >= len(GoalOU):
+                return goal_str
+            return GoalOU[idx]
+        else:
+            if idx >= len(GoalOU2):
+                return goal_str
+            return GoalOU2[idx]
+    except (ValueError, TypeError):
+        return goal_str
+
+
 class OddsTableDisplay:
     """专业赔率表格显示组件 - 1:1复制网页效果"""
 
@@ -169,6 +226,142 @@ class OddsTableDisplay:
             ])
 
         self.create_odds_table_web_style(title, headers, rows, col_widths)
+
+    def create_odds_trend_table(self, odds_trend: List[Dict]):
+        """创建即时走势比较表格 - 1:1复制网站showOddsNew格式
+        列: 公司 | 欧指(主胜/和局/客胜) | 欧转亚盘(主队/亚让/客队/总水位) | 实际亚盘(主队/亚让/客队/总水位) | 进球数(大球/盘口/小球)
+        每公司2-3行: 初/终(仅Crow*比赛进行时)/即时或滚球
+        """
+        if not odds_trend:
+            return
+
+        s = self.scale
+        self.create_section_title('即时走势')
+
+        table_outer = tk.Frame(self.parent, bg=self.border_color, bd=1)
+        table_outer.pack(fill=tk.X, padx=5, pady=(0, 10))
+
+        table_canvas = tk.Canvas(table_outer, bg=self.border_color, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(table_outer, orient="horizontal", command=table_canvas.xview)
+        table_canvas.configure(xscrollcommand=scrollbar.set)
+
+        table_container = tk.Frame(table_canvas, bg=self.border_color)
+        table_window = table_canvas.create_window((0, 0), window=table_container, anchor="nw")
+
+        def on_table_config(event):
+            table_canvas.configure(scrollregion=table_canvas.bbox("all"))
+            table_canvas.itemconfig(table_window, width=event.width)
+
+        table_container.bind("<Configure>", on_table_config)
+        table_canvas.bind("<Configure>", lambda e: table_canvas.itemconfig(table_window, width=e.width))
+        table_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
+
+        char_width = max(7, int(9 * s))
+        font = ('Microsoft YaHei', char_width)
+        font_bold = ('Microsoft YaHei', char_width, 'bold')
+
+        header_bg = '#DAE9FA'
+        init_bg = '#ffffff'
+        final_bg = '#F2F9FD'
+        live_bg = '#fffff0'
+        eua_bg = '#FEFFEE'
+        goal_bg = '#FEFFEE'
+
+        col_widths = [8, 4, 6, 6, 6, 6, 7, 6, 7, 6, 7, 6, 7, 6, 6, 6]
+        headers_row1 = ['公司', '', '欧指', '', '', '欧转亚盘', '', '', '', '实际亚盘', '', '', '', '进球数', '', '']
+        headers_row2 = ['', '', '主胜', '和局', '客胜', '主队', '亚让', '客队', '总水位', '主队', '亚让', '客队', '总水位', '大球', '盘口', '小球']
+        spans_row1 = {0: 2, 2: 3, 5: 4, 9: 4, 13: 3}
+
+        row = 0
+        for col_idx, hdr in enumerate(headers_row1):
+            if col_idx in spans_row1:
+                w = sum(col_widths[col_idx:col_idx + spans_row1[col_idx]])
+                lbl = tk.Label(table_container, text=hdr, font=font_bold, fg='#333333',
+                               bg=header_bg, width=w, relief='solid', bd=1, padx=1, pady=2)
+                lbl.grid(row=row, column=col_idx, columnspan=spans_row1[col_idx], sticky='nsew')
+
+        row = 1
+        for col_idx, hdr in enumerate(headers_row2):
+            w = col_widths[col_idx]
+            lbl = tk.Label(table_container, text=hdr, font=font_bold, fg='#333333',
+                           bg=header_bg, width=w, relief='solid', bd=1, padx=1, pady=2)
+            lbl.grid(row=row, column=col_idx, sticky='nsew')
+
+        def get_vals(d, prefix):
+            return [
+                d.get(f'eu_{prefix}_home', ''),
+                d.get(f'eu_{prefix}_draw', ''),
+                d.get(f'eu_{prefix}_away', ''),
+                d.get(f'eua_{prefix}_home', ''),
+                d.get(f'eua_{prefix}_handicap', ''),
+                d.get(f'eua_{prefix}_away', ''),
+                d.get(f'eua_{prefix}_total', ''),
+                d.get(f'real_{prefix}_home', ''),
+                d.get(f'real_{prefix}_handicap', ''),
+                d.get(f'real_{prefix}_away', ''),
+                d.get(f'real_{prefix}_total', ''),
+                d.get(f'goal_{prefix}_big', ''),
+                d.get(f'goal_{prefix}_line', ''),
+                d.get(f'goal_{prefix}_small', ''),
+            ]
+
+        row = 2
+        for item in odds_trend:
+            company = item.get('company', '')
+            company_id = item.get('company_id', '')
+
+            has_live = any([
+                item.get('eu_live_home'), item.get('eua_live_home'),
+                item.get('real_live_home'), item.get('goal_live_big')
+            ])
+            has_final = (company_id == '3' and has_live)
+
+            num_rows = 3 if has_final else 2
+
+            lbl = tk.Label(table_container, text=company, font=font_bold, fg='#0066cc',
+                           bg=init_bg, width=8, relief='solid', bd=1, padx=1, pady=2)
+            lbl.grid(row=row, column=0, rowspan=num_rows, sticky='nsew')
+
+            init_vals = get_vals(item, 'init')
+            curr_vals = get_vals(item, 'curr')
+            live_vals = get_vals(item, 'live')
+
+            def render_data_row(r, label, vals, bg_color, is_bold=False):
+                type_bg = final_bg if label in ('终', '即时', '滚球') else init_bg
+                type_fg = '#ff6600' if label in ('即时', '滚球') else '#333333'
+                lbl_type = tk.Label(table_container, text=label, font=font,
+                                    fg=type_fg, bg=type_bg, width=4, relief='solid', bd=1, padx=1, pady=2)
+                lbl_type.grid(row=r, column=1, sticky='nsew')
+
+                f = font_bold if is_bold else font
+                cell_bgs = [
+                    init_bg, init_bg, init_bg,
+                    eua_bg, eua_bg, eua_bg, eua_bg,
+                    bg_color, bg_color, bg_color, bg_color,
+                    goal_bg, goal_bg, goal_bg,
+                ]
+
+                for i, text in enumerate(vals):
+                    display_text = text if text else ''
+                    lbl = tk.Label(table_container, text=display_text, font=f,
+                                   fg='#333333', bg=cell_bgs[i], width=col_widths[i + 2],
+                                   relief='solid', bd=1, padx=1, pady=2)
+                    lbl.grid(row=r, column=i + 2, sticky='nsew')
+
+            render_data_row(row, '初', init_vals, init_bg)
+
+            if has_final:
+                render_data_row(row + 1, '终', live_vals, final_bg)
+                render_data_row(row + 2, '滚球', live_vals, live_bg, is_bold=True)
+            else:
+                label = '滚球' if has_live else '即时'
+                data_vals = live_vals if has_live else curr_vals
+                render_data_row(row + 1, label, data_vals, live_bg, is_bold=True)
+
+            row += num_rows
+
+        for c in range(16):
+            table_container.grid_columnconfigure(c, weight=1)
 
     def create_company_odds_table(self, title: str, odds_list: List[Dict], odds_type: str):
         """创建公司赔率表格 - 网页标准格式"""
@@ -359,7 +552,7 @@ class OddsTableDisplay:
         if (home_jc != '' or away_jc != '') and (home_jc != home_score or away_jc != away_score):
             jc_frame = tk.Frame(info_frame, bg='#fff8e1', bd=1, relief='solid')
             jc_frame.pack(fill=tk.X, padx=10, pady=5)
-            jc_text = f"半场比分: {home_jc}:{away_jc}"
+            jc_text = f"竞彩比分: {home_jc}:{away_jc}"
             tk.Label(jc_frame, text=jc_text, font=('Microsoft YaHei', max(10, int(12*s))),
                     fg='#ff6600', bg='#fff8e1').pack(pady=3)
 
@@ -437,6 +630,11 @@ class OddsTableDisplay:
             trend_data = analysis_data.get('trend_data', [])
             if trend_data:
                 self.create_trend_table('即时走势 (让球/大小球/欧洲指数)', trend_data)
+
+            # 即时走势比较（让球/大小球/欧洲指数）
+            odds_trend = analysis_data.get('odds_trend', [])
+            if odds_trend:
+                self.create_odds_trend_table(odds_trend)
 
             # 欧洲指数
             euro_odds = analysis_data.get('european_odds', [])
