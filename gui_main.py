@@ -141,12 +141,15 @@ class MatchScraper:
                 if len(time_parts) >= 5:
                     match_time = f"{time_parts[3]}:{time_parts[4]}"
 
+                # 状态映射 - 基于球探网实际状态码
+                # 0=未开始, 1=上半场, 2=已完场, 3=下半场, -1=已完场
+                # 注意：网页上显示69',70',71'等时间时，状态码实际上是3（下半场进行中）
                 status_map = {
                     '0': '未开始',
                     '1': '上半场',
-                    '2': '已完场',
-                    '3': '中场',
-                    '4': '下半场',
+                    '2': '中场',
+                    '3': '下半场',  # 状态码3实际表示下半场进行中
+                    '4': '加时',
                     '-1': '已完场'
                 }
                 status_text = status_map.get(status_code, '未知')
@@ -196,6 +199,10 @@ class MatchScraper:
 
         return matches
 
+    def fetch_web_time(self, match_unique_id: str) -> str:
+        """从网页获取服务器时间差 - 用于精确计算比赛时间"""
+        return ""
+
     def get_all_matches(self, date_str: Optional[str] = None) -> List[Dict]:
         """获取所有比赛数据"""
         from datetime import datetime
@@ -208,7 +215,8 @@ class MatchScraper:
         if not content:
             return []
 
-        return self.parse_matches(content)
+        matches = self.parse_matches(content)
+        return matches
 
     def fetch_match_analysis(self, match: Dict) -> Dict:
         """获取比赛分析数据"""
@@ -789,36 +797,50 @@ class MatchDisplayApp:
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 绑定鼠标滚轮事件到画布
-        self.list_canvas.bind("<MouseWheel>", lambda e: self._on_mousewheel(e, self.list_canvas))
-        self.list_canvas.bind("<Button-4>", lambda e: self._on_mousewheel(e, self.list_canvas))
-        self.list_canvas.bind("<Button-5>", lambda e: self._on_mousewheel(e, self.list_canvas))
+        # 全局鼠标滚轮绑定 - 根据鼠标位置自动判断滚动哪个区域
+        def on_global_mousewheel(event):
+            # 获取鼠标在屏幕上的位置
+            x = event.x_root
+            y = event.y_root
 
-        # 鼠标进入列表区域时切换当前滚动对象
-        def on_enter_list(event):
-            self.current_scroll_canvas = self.list_canvas
-        left_frame.bind("<Enter>", on_enter_list)
+            # 检查鼠标是否在详情区域上方
+            try:
+                if self.detail_frame.winfo_exists():
+                    dx = self.detail_frame.winfo_rootx()
+                    dy = self.detail_frame.winfo_rooty()
+                    dw = self.detail_frame.winfo_width()
+                    dh = self.detail_frame.winfo_height()
+                    if dx <= x <= dx + dw and dy <= y <= dy + dh:
+                        # 鼠标在详情区域，查找详情canvas
+                        for widget in self.detail_frame.winfo_children():
+                            if isinstance(widget, tk.Canvas) and widget.winfo_exists():
+                                self._on_mousewheel(event, widget)
+                                return
+            except tk.TclError:
+                pass
 
-        # 鼠标进入详情区域时切换当前滚动对象
-        def on_enter_detail_area(event):
-            # 查找详情区域中的canvas
-            for widget in self.detail_frame.winfo_children():
-                if isinstance(widget, tk.Canvas) and widget.winfo_exists():
-                    self.current_scroll_canvas = widget
-                    break
-        right_frame.bind("<Enter>", on_enter_detail_area)
+            # 默认滚动左边列表
+            try:
+                if self.list_canvas.winfo_exists():
+                    self._on_mousewheel(event, self.list_canvas)
+            except tk.TclError:
+                pass
 
-        # 保存当前滚动的画布引用
-        self.current_scroll_canvas = self.list_canvas
+        self.root.bind_all("<MouseWheel>", on_global_mousewheel)
+        self.root.bind_all("<Button-4>", on_global_mousewheel)
+        self.root.bind_all("<Button-5>", on_global_mousewheel)
 
         # 右侧详情区域
         right_frame = tk.Frame(main_paned, bg='#0f3460')
         main_paned.add(right_frame)
 
+        # 保存当前滚动的画布引用
+        self.current_scroll_canvas = self.list_canvas
+
         detail_title_font_size = max(10, int(16 * self.scale))
         detail_title = tk.Label(
             right_frame,
-            text="比赛详情",
+            text="盘口详情",
             font=('Microsoft YaHei', detail_title_font_size, 'bold'),
             fg='#e94560',
             bg='#0f3460'
@@ -1103,64 +1125,59 @@ class MatchDisplayApp:
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
 
-        # 显示比赛进行时间 - 根据赛事阶段显示
-        if status_code in ['1', '3', '4']:  # 上半场、中场、下半场
+        # 显示比赛进行时间 - 完全按照网页football.js的逻辑
+        # JS源码: this.startTime = AmountTimeDiff(arr[2])  // arr[2]是update_time
+        # JS计算: goTime = Math.floor((now - startTime - difftime) / 60000) + (state == "1" ? 0 : 46)
+        # 上半场(1): goTime = (now - start_time) / 60000
+        # 下半场(3): goTime = (now - update_time) / 60000 + 46
+        if status_code in ['1', '3']:
+            display_time = None
             try:
                 from datetime import datetime
 
-                start_time = match.get('start_time', '')
-
-                if start_time:
-                    start_parts = start_time.split(',')
-
-                    if len(start_parts) >= 5:
-                        # 获取开始时间的小时和分钟
-                        start_h = int(start_parts[3])
-                        start_m = int(start_parts[4])
-
-                        # 获取当前时间
-                        now = datetime.now()
-                        now_h = now.hour
-                        now_m = now.minute
-
-                        # 计算时间差（分钟）
-                        start_total = start_h * 60 + start_m
-                        now_total = now_h * 60 + now_m
-
-                        diff = now_total - start_total
-
-                        # 只显示正数时间
-                        if diff > 0:
-                            # 根据赛事阶段调整时间显示
-                            if status_code == '1':  # 上半场
-                                # 上半场最多45分钟
-                                if diff > 45:
-                                    display_time = "45+"
-                                else:
-                                    display_time = f"{diff}'"
-                            elif status_code == '3':  # 中场休息
-                                display_time = "中场"
-                            elif status_code == '4':  # 下半场
-                                # 下半场从45分钟开始，显示45-90+分钟
-                                if diff > 90:
-                                    display_time = "90+"
-                                else:
-                                    display_time = f"{diff}'"
+                if status_code == '1':
+                    # 上半场: 用开球时间计算
+                    time_str = match.get('start_time', '')
+                else:
+                    # 下半场: 用更新时间计算（JS的startTime = update_time）
+                    time_str = match.get('update_time', '')
+                
+                if time_str:
+                    parts = time_str.split(',')
+                    if len(parts) >= 6:
+                        dt = datetime(int(parts[0]), int(parts[1])+1,
+                                     int(parts[2]), int(parts[3]),
+                                     int(parts[4]), int(parts[5]))
+                        now_dt = datetime.now()
+                        elapsed = int((now_dt - dt).total_seconds() // 60)
+                        
+                        if status_code == '1':  # 上半场
+                            if elapsed > 45:
+                                display_time = "45+"
+                            elif elapsed < 1:
+                                display_time = "1'"
                             else:
-                                display_time = f"{diff}'"
-
-                            # 显示进行时间
-                            time_frame = tk.Frame(status_frame, bg='#1a1a2e')
-                            time_frame.pack(side=tk.RIGHT, padx=int(5*s))
-
-                            time_label = tk.Label(time_frame, text=display_time,
-                                                 font=('Microsoft YaHei', max(8, int(10*s)), 'bold'),
-                                                 fg='#00ff00', bg='#1a1a2e', padx=int(10*s))
-                            time_label.pack(side=tk.RIGHT)
-                            time_label.bind('<Button-1>', on_click)
+                                display_time = f"{elapsed}'"
+                        elif status_code == '3':  # 下半场: elapsed + 46
+                            go_time = elapsed + 46
+                            if go_time > 90:
+                                display_time = "90+"
+                            elif go_time < 46:
+                                display_time = "46'"
+                            else:
+                                display_time = f"{go_time}'"
             except Exception as e:
                 print(f"时间计算错误: {e}")
-        # 未开始或已结束不显示时间
+            
+            if display_time:
+                time_frame = tk.Frame(status_frame, bg='#1a1a2e')
+                time_frame.pack(side=tk.RIGHT, padx=int(5*s))
+
+                time_label = tk.Label(time_frame, text=display_time,
+                                     font=('Microsoft YaHei', max(8, int(10*s)), 'bold'),
+                                     fg='#00ff00', bg='#1a1a2e', padx=int(10*s))
+                time_label.pack(side=tk.RIGHT)
+                time_label.bind('<Button-1>', on_click)
 
         return card
 
@@ -1369,29 +1386,6 @@ class MatchDisplayApp:
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 绑定鼠标滚轮事件
-        def safe_mousewheel(e, c=canvas):
-            try:
-                if c.winfo_exists():
-                    self._on_mousewheel(e, c)
-            except tk.TclError:
-                pass
-
-        canvas.bind("<MouseWheel>", safe_mousewheel)
-        canvas.bind("<Button-4>", safe_mousewheel)
-        canvas.bind("<Button-5>", safe_mousewheel)
-
-        def on_enter_detail(event):
-            try:
-                if canvas.winfo_exists():
-                    self.current_scroll_canvas = canvas
-            except tk.TclError:
-                pass
-        def on_leave_detail(event):
-            self.current_scroll_canvas = self.list_canvas
-        self.detail_frame.bind("<Enter>", on_enter_detail)
-        self.detail_frame.bind("<Leave>", on_leave_detail)
 
         # 使用新的专业表格显示 - 传入analysis_data显示完整数据
         odds_display = OddsTableDisplay(scrollable_frame, s)
