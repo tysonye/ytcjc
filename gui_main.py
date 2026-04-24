@@ -1003,20 +1003,9 @@ class MatchDisplayApp:
         self.detail_frame.bind("<Enter>", on_enter_detail)
         self.detail_frame.bind("<Leave>", on_leave_detail)
         
-        # 使用新的专业表格显示
+        # 使用新的专业表格显示 - 显示所有数据
         odds_display = OddsTableDisplay(scrollable_frame, s)
-        
-        # 创建信息卡片
-        odds_display.create_info_card(match)
-        
-        # 创建比分统计
-        odds_display.create_match_stats(match)
-        
-        # 创建欧洲指数表格
-        odds_display.create_european_odds_table(match)
-        
-        # 创建亚洲盘口表格
-        odds_display.create_asian_handicap_table(match)
+        odds_display.create_full_display(match)
     
     def show_match_detail(self, match: Dict):
         s = self.scale
