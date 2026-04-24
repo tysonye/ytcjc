@@ -787,30 +787,49 @@ class MatchDisplayApp:
     
     def fetch_web_analysis(self, match: Dict) -> str:
         """从网页获取详细分析数据"""
-        # 简化显示，不访问网站
         return self.parse_web_content("", match)
     
     def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 清晰显示"""
-        content = []
-        content.append("=" * 80)
-        content.append(f"  比赛: {match.get('match_id', '')}")
-        content.append("=" * 80)
+        """解析网页内容 - 清晰显示比赛信息"""
+        # 构建清晰的内容
+        lines = []
+        lines.append("")
+        lines.append("")
+        lines.append("")
         
-        # 添加比赛基本信息
-        content.append(f"\n{'主队':<15}{match.get('home_team', '')}")
-        content.append(f"{'客队':<15}{match.get('away_team', '')}")
-        content.append(f"{'联赛':<15}{match.get('league', '未知')}")
-        content.append(f"{'状态':<15}{match.get('status', '未知')}")
-        content.append(f"{'时间':<15}{match.get('match_time', '未知')}")
+        # 标题
+        lines.append("")
+        lines.append("")
+        lines.append("")
+        lines.append(f"     ★ 比赛详情 - {match.get('match_id', '')} ★")
+        lines.append("")
+        lines.append("")
+        
+        # 对阵双方
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 对阵双方 】")
+        lines.append("")
+        lines.append(f"           主队: {match.get('home_team', '')}")
+        lines.append(f"           客队: {match.get('away_team', '')}")
+        lines.append("")
+        lines.append("")
+        
+        # 基本信息
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 基本信息 】")
+        lines.append("")
+        lines.append(f"           联赛: {match.get('league', '未知')}")
+        lines.append(f"           状态: {match.get('status', '未知')}")
+        lines.append(f"           时间: {match.get('match_time', '未知')}")
         
         score = match.get('score', '')
         if score:
-            content.append(f"{'比分':<15}{score}")
+            lines.append(f"           比分: {score}")
         
         handicap = match.get('handicap', '')
         if handicap:
-            # 解析盘口信息
             try:
                 handicap_val = float(handicap)
                 if handicap_val > 0:
@@ -819,24 +838,28 @@ class MatchDisplayApp:
                     handicap_text = f"客队让 {abs(handicap_val)} 球"
                 else:
                     handicap_text = "平手盘"
-                content.append(f"{'盘口':<15}{handicap} ({handicap_text})")
+                lines.append(f"           盘口: {handicap} ({handicap_text})")
             except:
-                content.append(f"{'盘口':<15}{handicap}")
+                lines.append(f"           盘口: {handicap}")
         
-        # 添加分隔区域
-        content.append("\n" + "=" * 80)
-        content.append("  比赛数据")
-        content.append("=" * 80)
+        lines.append("")
+        lines.append("")
         
-        # 从原始数据中提取更多信息
+        # 数据统计
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 数据统计 】")
+        lines.append("")
         raw_data = match.get('raw_data', [])
-        if len(raw_data) >= 24:
-            # 简单显示一些原始数据信息
-            content.append(f"\n原始数据可用: {len(raw_data)} 字段")
+        if raw_data:
+            lines.append(f"           原始数据字段: {len(raw_data)}")
         
-        content.append("\n" + "=" * 80)
+        lines.append("")
+        lines.append("")
+        lines.append("")
+        lines.append("")
         
-        return "\n".join(content)
+        return "\n".join(lines)
     
     def display_web_analysis(self, match: Dict, web_data: str, loading_label):
         s = self.scale
@@ -845,7 +868,6 @@ class MatchDisplayApp:
         scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg='#0f3460')
         
-        # 窗口ID
         detail_window_id = None
         
         def on_detail_canvas_config(event):
@@ -863,49 +885,57 @@ class MatchDisplayApp:
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        # 绑定鼠标滚轮事件到详情画布，并切换当前滚动对象
+        
         canvas.bind("<MouseWheel>", lambda e: self._on_mousewheel(e, canvas))
         canvas.bind("<Button-4>", lambda e: self._on_mousewheel(e, canvas))
         canvas.bind("<Button-5>", lambda e: self._on_mousewheel(e, canvas))
-        # 鼠标进入详情区域时切换当前滚动对象
+        
         def on_enter_detail(event):
             self.current_scroll_canvas = canvas
-        # 鼠标离开详情区域时切换回列表滚动对象
         def on_leave_detail(event):
             self.current_scroll_canvas = self.list_canvas
         self.detail_frame.bind("<Enter>", on_enter_detail)
         self.detail_frame.bind("<Leave>", on_leave_detail)
         
         if web_data:
-            # 更好的显示方式 - 每行一个标签，使用更好的字体
+            # 美化显示
             lines = web_data.split('\n')
             for line in lines:
-                # 根据内容选择不同的样式
-                fg_color = '#ffffff'
+                line = line.rstrip()
+                if not line:
+                    line = ' '
+                
+                # 更美观的颜色方案
+                fg_color = '#c0c0c0'
                 bg_color = '#0f3460'
                 font_size = max(10, int(12*s))
                 font_weight = 'normal'
+                anchor = 'w'
                 
-                if '=' in line:
-                    fg_color = '#00ff88'
-                    font_weight = 'bold'
-                elif ':' in line and not ('http' in line):
-                    fg_color = '#00ffff'
-                elif 'VS' in line:
+                # 根据内容类型
+                if '★' in line:
                     fg_color = '#ffd700'
                     font_weight = 'bold'
+                    font_size = max(14, int(16*s))
+                elif '【' in line and '】' in line:
+                    fg_color = '#00ff88'
+                    font_weight = 'bold'
                     font_size = max(12, int(14*s))
+                elif '主队:' in line or '客队:' in line or '联赛:' in line or '状态:' in line or '时间:' in line or '比分:' in line or '盘口:' in line:
+                    fg_color = '#00ffff'
+                else:
+                    fg_color = '#e0e0e0'
                 
                 line_label = tk.Label(
-                    scrollable_frame, 
-                    text=line, 
-                    font=('Microsoft YaHei', font_size, font_weight), 
-                    fg=fg_color, 
-                    bg=bg_color, 
-                    justify=tk.LEFT, 
-                    anchor='w'
+                    scrollable_frame,
+                    text=line,
+                    font=('Microsoft YaHei', font_size, font_weight),
+                    fg=fg_color,
+                    bg=bg_color,
+                    justify=tk.LEFT,
+                    anchor=anchor
                 )
-                line_label.pack(fill=tk.X, padx=int(10*s), pady=int(2*s))
+                line_label.pack(fill=tk.X, padx=int(20*s), pady=int(3*s))
     
     def show_match_detail(self, match: Dict):
         s = self.scale
