@@ -158,13 +158,11 @@ class MatchScraper:
                 }
                 status_text = status_map.get(status_code, '未知')
                 
-                # 完整比分
-                score = ""
-                if home_full_score != '0' or away_full_score != '0':
-                    if home_half_score != '0' or away_half_score != '0':
-                        score = f"{home_full_score}:{away_full_score} (半:{home_half_score}:{away_half_score})"
-                    else:
-                        score = f"{home_full_score}:{away_full_score}"
+                # 完整比分 - 0:0也要显示
+                if home_half_score != '0' or away_half_score != '0':
+                    score = f"{home_full_score}:{away_full_score} (半:{home_half_score}:{away_half_score})"
+                else:
+                    score = f"{home_full_score}:{away_full_score}"
                 
                 # 完整的数据！
                 match_info = {
