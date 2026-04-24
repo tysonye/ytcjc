@@ -101,28 +101,53 @@ class MatchScraper:
                 league_id = fields[5] if len(fields) > 5 else ""
                 league_name = league_info.get(league_id, "")
                 
-                start_time = fields[1] if len(fields) > 1 else ""
+                # 完整解析所有24个字段！
+                match_unique_id = fields[0] if len(fields) > 0 else ""
+                start_time_str = fields[1] if len(fields) > 1 else ""
+                update_time_str = fields[2] if len(fields) > 2 else ""
+                status_code = fields[3] if len(fields) > 3 else ""
                 
-                # 主队：字段 [8] 格式："简体名，繁体名，英文名"
+                home_team_id = fields[7] if len(fields) > 7 else ""
                 home_team_full = fields[8] if len(fields) > 8 else ""
-                if ',' in home_team_full:
-                    home_parts = home_team_full.split(',')
-                    home_team = home_parts[0].strip() if len(home_parts) >= 1 else home_team_full
-                else:
-                    home_team = home_team_full
                 
-                # 客队：字段 [10] 格式："简体名，繁体名，英文名"
+                away_team_id = fields[9] if len(fields) > 9 else ""
                 away_team_full = fields[10] if len(fields) > 10 else ""
-                if ',' in away_team_full:
-                    away_parts = away_team_full.split(',')
-                    away_team = away_parts[0].strip() if len(away_parts) >= 1 else away_team_full
+                
+                home_half_score = fields[11] if len(fields) > 11 else "0"
+                away_half_score = fields[12] if len(fields) > 12 else "0"
+                home_full_score = fields[13] if len(fields) > 13 else "0"
+                away_full_score = fields[14] if len(fields) > 14 else "0"
+                
+                red_yellow = fields[15] if len(fields) > 15 else ""
+                init_home_odd = fields[16] if len(fields) > 16 else ""
+                init_draw_odd = fields[17] if len(fields) > 17 else ""
+                init_away_odd = fields[18] if len(fields) > 18 else ""
+                curr_home_odd = fields[19] if len(fields) > 19 else ""
+                curr_draw_odd = fields[20] if len(fields) > 20 else ""
+                curr_away_odd = fields[21] if len(fields) > 21 else ""
+                handicap = fields[22] if len(fields) > 22 else ""
+                other_flag = fields[23] if len(fields) > 23 else ""
+                
+                # 解析球队名
+                home_team = ""
+                if ',' in home_team_full:
+                    home_team = home_team_full.split(',')[0].strip()
                 else:
-                    away_team = away_team_full
+                    home_team = home_team_full.strip()
                 
-                home_score = fields[11] if len(fields) > 11 else "0"
-                away_score = fields[12] if len(fields) > 12 else "0"
+                away_team = ""
+                if ',' in away_team_full:
+                    away_team = away_team_full.split(',')[0].strip()
+                else:
+                    away_team = away_team_full.strip()
                 
-                status = fields[3] if len(fields) > 3 else "0"
+                # 解析时间
+                match_time = ""
+                time_parts = start_time_str.split(',')
+                if len(time_parts) >= 5:
+                    match_time = f"{time_parts[3]}:{time_parts[4]}"
+                
+                # 状态映射
                 status_map = {
                     '0': '未开始',
                     '1': '进行中',
@@ -130,62 +155,50 @@ class MatchScraper:
                     '3': '中场',
                     '-1': '已完场'
                 }
-                status_text = status_map.get(status, '未知')
+                status_text = status_map.get(status_code, '未知')
                 
-                # 解析时间
-                time_parts = start_time.split(',')
-                if len(time_parts) >= 5:
-                    match_time = f"{time_parts[3]}:{time_parts[4]}"
-                else:
-                    match_time = ""
+                # 完整比分
+                score = ""
+                if home_full_score != '0' or away_full_score != '0':
+                    if home_half_score != '0' or away_half_score != '0':
+                        score = f"{home_full_score}:{away_full_score} (半:{home_half_score}:{away_half_score})"
+                    else:
+                        score = f"{home_full_score}:{away_full_score}"
                 
-                # 获取盘口和赔率数据
-                handicap = fields[22] if len(fields) > 22 else ""  # 让球/盘口
-                
-                # 提取各种赔率信息
-                # 初盘赔率
-                init_home_odd = fields[16] if len(fields) > 16 else ""
-                init_draw_odd = fields[17] if len(fields) > 17 else ""
-                init_away_odd = fields[18] if len(fields) > 18 else ""
-                
-                # 即时赔率
-                curr_home_odd = fields[19] if len(fields) > 19 else ""
-                curr_draw_odd = fields[20] if len(fields) > 20 else ""
-                curr_away_odd = fields[21] if len(fields) > 21 else ""
-                
-                # 大小球赔率
-                over_under = fields[24] if len(fields) > 24 else ""
-                big_odd = fields[25] if len(fields) > 25 else ""
-                small_odd = fields[26] if len(fields) > 26 else ""
-                
-                # 其他数据
-                odd_change = fields[23] if len(fields) > 23 else ""
-                weather = fields[4] if len(fields) > 4 else ""
-                
+                # 完整的数据！
                 match_info = {
                     'match_id': match_id.strip(),
+                    'match_unique_id': match_unique_id,
                     'league': league_name,
-                    'match_time': match_time,
-                    'start_time': start_time,
-                    'status': status_text,
-                    'home_team': home_team.strip(),
-                    'away_team': away_team.strip(),
-                    'score': f"{home_score}:{away_score}" if home_score != '0' or away_score != '0' else '',
                     'league_id': league_id,
-                    'handicap': handicap,  # 盘口数据 (如：0.5, 0.25)
+                    'match_time': match_time,
+                    'start_time': start_time_str,
+                    'update_time': update_time_str,
+                    'status': status_text,
+                    'status_code': status_code,
+                    'home_team': home_team,
+                    'home_team_id': home_team_id,
+                    'home_team_full': home_team_full,
+                    'away_team': away_team,
+                    'away_team_id': away_team_id,
+                    'away_team_full': away_team_full,
+                    'score': score,
+                    'home_score': home_full_score,
+                    'away_score': away_full_score,
+                    'home_half_score': home_half_score,
+                    'away_half_score': away_half_score,
+                    'handicap': handicap,
                     'init_home_odd': init_home_odd,
                     'init_draw_odd': init_draw_odd,
                     'init_away_odd': init_away_odd,
                     'curr_home_odd': curr_home_odd,
                     'curr_draw_odd': curr_draw_odd,
                     'curr_away_odd': curr_away_odd,
-                    'over_under': over_under,
-                    'big_odd': big_odd,
-                    'small_odd': small_odd,
-                    'odd_change': odd_change,
-                    'weather': weather,
+                    'red_yellow': red_yellow,
+                    'other_flag': other_flag,
                     'raw_data': fields
                 }
+                
                 matches.append(match_info)
                 
             except Exception as e:
@@ -806,7 +819,7 @@ class MatchDisplayApp:
         return self.parse_web_content("", match)
     
     def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 清晰显示比赛信息和赔率"""
+        """解析网页内容 - 显示所有数据"""
         lines = []
         lines.append("")
         lines.append("")
@@ -815,8 +828,28 @@ class MatchDisplayApp:
         # 标题
         lines.append("")
         lines.append("")
-        lines.append("")
         lines.append(f"     ★ 比赛详情 - {match.get('match_id', '')} ★")
+        lines.append("")
+        lines.append("")
+        
+        # 基本信息
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 基本信息 】")
+        lines.append("")
+        lines.append(f"           比赛编号: {match.get('match_unique_id', '')}")
+        lines.append(f"           联赛: {match.get('league', '')}")
+        lines.append(f"           状态: {match.get('status', '')}")
+        lines.append(f"           比赛时间: {match.get('match_time', '')}")
+        
+        update_time = match.get('update_time', '')
+        if update_time:
+            lines.append(f"           更新时间: {update_time}")
+        
+        score = match.get('score', '')
+        if score:
+            lines.append(f"           比分: {score}")
+        
         lines.append("")
         lines.append("")
         
@@ -826,26 +859,9 @@ class MatchDisplayApp:
         lines.append(f"     【 对阵双方 】")
         lines.append("")
         lines.append(f"           主队: {match.get('home_team', '')}")
+        lines.append(f"           主队ID: {match.get('home_team_id', '')}")
         lines.append(f"           客队: {match.get('away_team', '')}")
-        lines.append("")
-        lines.append("")
-        
-        # 基本信息
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 基本信息 】")
-        lines.append("")
-        lines.append(f"           联赛: {match.get('league', '未知')}")
-        lines.append(f"           状态: {match.get('status', '未知')}")
-        lines.append(f"           时间: {match.get('match_time', '未知')}")
-        
-        score = match.get('score', '')
-        if score:
-            lines.append(f"           比分: {score}")
-        
-        weather = match.get('weather', '')
-        if weather:
-            lines.append(f"           天气: {weather}")
+        lines.append(f"           客队ID: {match.get('away_team_id', '')}")
         
         lines.append("")
         lines.append("")
@@ -876,10 +892,6 @@ class MatchDisplayApp:
             lines.append(f"                  平局: {curr_draw}")
             lines.append(f"                  客胜: {curr_away}")
         
-        odd_change = match.get('odd_change', '')
-        if odd_change:
-            lines.append(f"           变化: {odd_change}")
-        
         lines.append("")
         lines.append("")
         
@@ -906,32 +918,36 @@ class MatchDisplayApp:
         lines.append("")
         lines.append("")
         
-        # 大小球赔率
+        # 其他数据
         lines.append("")
         lines.append("")
-        lines.append(f"     【 大小球赔率 】")
-        lines.append("")
-        
-        over_under = match.get('over_under', '')
-        big_odd = match.get('big_odd', '')
-        small_odd = match.get('small_odd', '')
-        
-        if over_under or big_odd or small_odd:
-            lines.append(f"           盘口: {over_under}")
-            lines.append(f"           大球: {big_odd}")
-            lines.append(f"           小球: {small_odd}")
-        
-        lines.append("")
+        lines.append(f"     【 其他信息 】")
         lines.append("")
         
-        # 数据统计
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 数据统计 】")
-        lines.append("")
+        red_yellow = match.get('red_yellow', '')
+        if red_yellow:
+            lines.append(f"           红黄牌: {red_yellow}")
+        
+        other_flag = match.get('other_flag', '')
+        if other_flag:
+            lines.append(f"           其他标志: {other_flag}")
+        
         raw_data = match.get('raw_data', [])
         if raw_data:
             lines.append(f"           原始数据字段: {len(raw_data)}")
+        
+        lines.append("")
+        lines.append("")
+        
+        # 显示所有原始数据！
+        lines.append("")
+        lines.append("")
+        lines.append(f"     【 原始数据 】")
+        lines.append("")
+        if raw_data:
+            for idx, val in enumerate(raw_data):
+                if val:
+                    lines.append(f"           [{idx}] {val}")
         
         lines.append("")
         lines.append("")
