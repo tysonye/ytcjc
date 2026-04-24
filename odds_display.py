@@ -636,7 +636,7 @@ class OddsTableDisplay:
 
         if analysis_data:
             jc = analysis_data.get('jc_odds', {})
-            if jc:
+            if jc and jc.get('eu_curr_home'):
                 init_home = jc.get('eu_init_home', '')
                 init_draw = jc.get('eu_init_draw', '')
                 init_away = jc.get('eu_init_away', '')
