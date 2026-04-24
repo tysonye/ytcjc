@@ -571,17 +571,22 @@ class OddsTableDisplay:
 
         handicap = match.get('handicap', '')
         if handicap:
-            handicap_text = ""
-            try:
-                handicap_val = float(handicap)
-                if handicap_val > 0:
-                    handicap_text = f"主让{handicap_val}"
-                elif handicap_val < 0:
-                    handicap_text = f"客让{abs(handicap_val)}"
+            handicap_text = goal2goal_cn(handicap)
+            if handicap_text:
+                prefix = "受让" if handicap_text.startswith("受让") else ""
+                core = handicap_text.replace("受让", "")
+                if prefix:
+                    handicap_text = f"客受让{core}"
                 else:
-                    handicap_text = "平手"
-            except:
-                handicap_text = handicap
+                    try:
+                        if float(handicap) > 0:
+                            handicap_text = f"主让{core}"
+                        elif float(handicap) == 0:
+                            handicap_text = core
+                        else:
+                            handicap_text = f"主受让{core}"
+                    except:
+                        handicap_text = core
             tk.Label(status_frame, text=f"盘口: {handicap_text}", font=('Microsoft YaHei', max(10, int(12*s))),
                     fg='#cc0000', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
 
