@@ -827,30 +827,42 @@ class MatchDisplayApp:
                     start_parts = start_time.split(',')
                     update_parts = update_time.split(',')
                     
-                    if len(start_parts) >= 5 and len(update_parts) >= 5:
-                        start_h = int(start_parts[3])
-                        start_m = int(start_parts[4])
-                        update_h = int(update_parts[3])
-                        update_m = int(update_parts[4])
+                    if len(start_parts) >= 6 and len(update_parts) >= 6:
+                        # 完整日期时间计算
+                        from datetime import datetime
                         
-                        start_total = start_h * 60 + start_m
-                        update_total = update_h * 60 + update_m
+                        start_dt = datetime(
+                            int(start_parts[0]), int(start_parts[1]), int(start_parts[2]),
+                            int(start_parts[3]), int(start_parts[4]), int(start_parts[5])
+                        )
+                        update_dt = datetime(
+                            int(update_parts[0]), int(update_parts[1]), int(update_parts[2]),
+                            int(update_parts[3]), int(update_parts[4]), int(update_parts[5])
+                        )
                         
-                        if update_total >= start_total:
-                            diff = update_total - start_total
+                        # 计算时间差（分钟）
+                        diff_seconds = (update_dt - start_dt).total_seconds()
+                        diff_minutes = int(diff_seconds // 60)
+                        
+                        # 只显示正数时间
+                        if diff_minutes > 0:
+                            # 超过90分钟显示90+
+                            if diff_minutes > 90:
+                                display_time = "90+"
+                            else:
+                                display_time = f"{diff_minutes}'"
                             
                             # 显示进行时间
                             time_frame = tk.Frame(status_frame, bg='#1a1a2e')
                             time_frame.pack(side=tk.RIGHT, padx=int(5*s))
                             
-                            time_text = f"{int(diff)}'"
-                            time_label = tk.Label(time_frame, text=time_text, 
+                            time_label = tk.Label(time_frame, text=display_time, 
                                                  font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), 
                                                  fg='#00ff00', bg='#1a1a2e', padx=int(10*s))
                             time_label.pack(side=tk.RIGHT)
                             time_label.bind('<Button-1>', on_click)
-            except:
-                pass
+            except Exception as e:
+                print(f"时间计算错误: {e}")
         # 未开始或已结束不显示时间
 
         return card
