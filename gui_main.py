@@ -279,8 +279,15 @@ class MatchDisplayApp:
     def __init__(self, root):
         self.root = root
         self.root.title("竞彩足球比赛数据大屏展示系统")
-        self.root.geometry("1400x900")
+        
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        self.scale = min(screen_width / 1920, screen_height / 1080)
+        window_width = int(min(1400 * self.scale, screen_width * 0.95))
+        window_height = int(min(900 * self.scale, screen_height * 0.9))
+        self.root.geometry(f"{window_width}x{window_height}")
         self.root.configure(bg='#1a1a2e')
+        self.root.bind('<Configure>', self.on_resize)
         
         self.matches = []
         self.filtered_matches = []
@@ -289,25 +296,45 @@ class MatchDisplayApp:
         self.setup_ui()
         self.refresh_data()
     
+    def on_resize(self, event):
+        if event.widget == self.root:
+            new_scale = min(event.width / 1920, event.height / 1080)
+            self.scale = max(0.5, new_scale)
+            self.update_layout()
+    
+    def update_layout(self):
+        pass
+
+    def get_font(self, base_size, weight='normal'):
+        size = max(8, int(base_size * self.scale))
+        return ('Microsoft YaHei', size, weight)
+
+    def get_pad(self, base_pad):
+        return max(2, int(base_pad * self.scale))
+
     def setup_ui(self):
         """设置 UI 界面"""
-        # 顶部标题栏
-        title_frame = tk.Frame(self.root, bg='#16213e', height=80)
-        title_frame.pack(fill=tk.X, padx=10, pady=10)
-        
+        pad = self.get_pad(10)
+        title_height = int(80 * self.scale)
+
+        title_frame = tk.Frame(self.root, bg='#16213e', height=title_height)
+        title_frame.pack(fill=tk.X, padx=pad, pady=pad)
+
+        title_font_size = max(12, int(24 * self.scale))
         title_label = tk.Label(
             title_frame,
             text="🏆 竞彩足球比赛数据大屏展示系统",
-            font=('Microsoft YaHei', 24, 'bold'),
+            font=('Microsoft YaHei', title_font_size, 'bold'),
             fg='#00ff88',
             bg='#16213e'
         )
-        title_label.pack(pady=20)
-        
+        title_label.pack(pady=int(20*self.scale))
+
+        time_font_size = max(8, int(12 * self.scale))
         self.time_label = tk.Label(
             title_frame,
             text="",
-            font=('Microsoft YaHei', 12),
+            font=('Microsoft YaHei', time_font_size),
             fg='#ffffff',
             bg='#16213e'
         )
@@ -316,96 +343,96 @@ class MatchDisplayApp:
         
         # 控制按钮区域
         control_frame = tk.Frame(self.root, bg='#1a1a2e')
-        control_frame.pack(fill=tk.X, padx=10, pady=10)
-        
+        control_frame.pack(fill=tk.X, padx=pad, pady=pad)
+
+        btn_font_size = max(8, int(12 * self.scale))
         refresh_btn = tk.Button(
             control_frame,
             text="🔄 刷新数据",
             command=self.refresh_data,
-            font=('Microsoft YaHei', 12, 'bold'),
+            font=('Microsoft YaHei', btn_font_size, 'bold'),
             bg='#0f3460',
             fg='#ffffff',
             relief=tk.FLAT,
             cursor='hand2',
-            padx=20,
-            pady=10
+            padx=int(20*self.scale),
+            pady=int(10*self.scale)
         )
-        refresh_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 联赛筛选
+        refresh_btn.pack(side=tk.LEFT, padx=self.get_pad(5))
+
+        label_font_size = max(8, int(12 * self.scale))
         tk.Label(
             control_frame,
             text="联赛筛选:",
-            font=('Microsoft YaHei', 12),
+            font=('Microsoft YaHei', label_font_size),
             fg='#ffffff',
             bg='#1a1a2e'
-        ).pack(side=tk.LEFT, padx=10)
-        
+        ).pack(side=tk.LEFT, padx=self.get_pad(10))
+
         self.league_var = tk.StringVar(value="全部")
+        combo_font_size = max(8, int(11 * self.scale))
         self.league_combo = ttk.Combobox(
             control_frame,
             textvariable=self.league_var,
             state="readonly",
             width=15,
-            font=('Microsoft YaHei', 11)
+            font=('Microsoft YaHei', combo_font_size)
         )
-        self.league_combo.pack(side=tk.LEFT, padx=5)
+        self.league_combo.pack(side=tk.LEFT, padx=self.get_pad(5))
         self.league_combo.bind('<<ComboboxSelected>>', self.filter_matches)
-        
-        # 状态筛选
+
         tk.Label(
             control_frame,
             text="状态筛选:",
-            font=('Microsoft YaHei', 12),
+            font=('Microsoft YaHei', label_font_size),
             fg='#ffffff',
             bg='#1a1a2e'
-        ).pack(side=tk.LEFT, padx=10)
-        
+        ).pack(side=tk.LEFT, padx=self.get_pad(10))
+
         self.status_var = tk.StringVar(value="全部")
         self.status_combo = ttk.Combobox(
             control_frame,
             textvariable=self.status_var,
             state="readonly",
             width=10,
-            font=('Microsoft YaHei', 11),
+            font=('Microsoft YaHei', combo_font_size),
             values=["全部", "未开始", "进行中", "已完场"]
         )
         self.status_combo.set("全部")
-        self.status_combo.pack(side=tk.LEFT, padx=5)
+        self.status_combo.pack(side=tk.LEFT, padx=self.get_pad(5))
         self.status_combo.bind('<<ComboboxSelected>>', self.filter_matches)
-        
-        # 统计标签
+
         self.stats_label = tk.Label(
             control_frame,
             text="总场次：0",
-            font=('Microsoft YaHei', 12, 'bold'),
+            font=('Microsoft YaHei', btn_font_size, 'bold'),
             fg='#00ff88',
             bg='#1a1a2e'
         )
-        self.stats_label.pack(side=tk.RIGHT, padx=20)
-        
+        self.stats_label.pack(side=tk.RIGHT, padx=self.get_pad(20))
+
         # 主内容区域
         main_paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg='#1a1a2e')
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # 左侧比赛列表
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=pad, pady=pad)
+
+        left_width = int(250 * self.scale)
         left_frame = tk.Frame(main_paned, bg='#16213e')
-        main_paned.add(left_frame, width=250)
-        
-        # 比赛列表标题
+        main_paned.add(left_frame, width=left_width)
+
+        list_title_font_size = max(10, int(16 * self.scale))
         list_title = tk.Label(
             left_frame,
             text="📋 比赛列表",
-            font=('Microsoft YaHei', 16, 'bold'),
+            font=('Microsoft YaHei', list_title_font_size, 'bold'),
             fg='#e94560',
             bg='#16213e'
         )
-        list_title.pack(pady=10)
-        
+        list_title.pack(pady=self.get_pad(10))
+
         # 比赛列表滚动区域
         list_canvas_frame = tk.Frame(left_frame, bg='#16213e')
-        list_canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+        list_canvas_frame.pack(fill=tk.BOTH, expand=True, padx=self.get_pad(10), pady=self.get_pad(10))
+
         self.list_canvas = tk.Canvas(
             list_canvas_frame,
             bg='#16213e',
@@ -416,49 +443,73 @@ class MatchDisplayApp:
             orient="vertical",
             command=self.list_canvas.yview
         )
-        
+
         self.matches_list_frame = tk.Frame(
             self.list_canvas,
             bg='#16213e'
         )
-        
+
         self.matches_list_frame.bind(
             "<Configure>",
             lambda e: self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
         )
-        
+
         self.list_canvas.create_window((0, 0), window=self.matches_list_frame, anchor="nw")
         self.list_canvas.configure(yscrollcommand=scrollbar.set)
-        
+
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # 绑定鼠标滚轮
-        self.list_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        
+
+        # 绑定鼠标滚轮事件到画布
+        self.list_canvas.bind("<MouseWheel>", lambda e: self._on_mousewheel(e, self.list_canvas))
+        self.list_canvas.bind("<Button-4>", lambda e: self._on_mousewheel(e, self.list_canvas))
+        self.list_canvas.bind("<Button-5>", lambda e: self._on_mousewheel(e, self.list_canvas))
+        # 使用bind_all确保全局可滚动（使用当前滚动对象）
+        self.root.bind_all("<MouseWheel>", lambda e: self._on_mousewheel(e))
+        self.root.bind_all("<Button-4>", lambda e: self._on_mousewheel(e))
+        self.root.bind_all("<Button-5>", lambda e: self._on_mousewheel(e))
+        # 鼠标进入列表区域时切换当前滚动对象
+        def on_enter_list(event):
+            self.current_scroll_canvas = self.list_canvas
+        left_frame.bind("<Enter>", on_enter_list)
+        # 保存当前滚动的画布引用
+        self.current_scroll_canvas = self.list_canvas
+
         # 右侧详情区域
         right_frame = tk.Frame(main_paned, bg='#0f3460')
         main_paned.add(right_frame)
-        
-        # 详情标题
+
+        detail_title_font_size = max(10, int(16 * self.scale))
         detail_title = tk.Label(
             right_frame,
             text="📊 比赛详情",
-            font=('Microsoft YaHei', 16, 'bold'),
+            font=('Microsoft YaHei', detail_title_font_size, 'bold'),
             fg='#e94560',
             bg='#0f3460'
         )
-        detail_title.pack(pady=10)
-        
+        detail_title.pack(pady=self.get_pad(10))
+
         # 详情内容区域
         self.detail_frame = tk.Frame(right_frame, bg='#0f3460')
-        self.detail_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
+        self.detail_frame.pack(fill=tk.BOTH, expand=True, padx=self.get_pad(20), pady=self.get_pad(10))
+
         self.show_welcome()
     
-    def _on_mousewheel(self, event):
+    def _on_mousewheel(self, event, canvas=None):
         """鼠标滚轮事件"""
-        self.list_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        if canvas is None:
+            canvas = self.current_scroll_canvas
+        if canvas is None:
+            return
+        if event.num == 4 or event.num == 5:
+            # Linux/macOS
+            if event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            else:
+                canvas.yview_scroll(1, "units")
+        else:
+            # Windows
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
     
     def update_time(self):
         """更新时间"""
@@ -564,158 +615,77 @@ class MatchDisplayApp:
             no_data_label.pack(pady=50)
     
     def create_match_card(self, match: Dict, index: int):
-        """创建比赛卡片"""
-        card = tk.Frame(
-            self.matches_list_frame,
-            bg='#1a1a2e',
-            cursor='hand2'
-        )
-        
-        # 绑定点击事件到所有子组件
+        s = self.scale
+        card = tk.Frame(self.matches_list_frame, bg='#1a1a2e', cursor='hand2')
         def on_click(event):
             self.show_match_detail(match)
-        
-        # 顶部信息栏
+
         top_frame = tk.Frame(card, bg='#e94560')
         top_frame.pack(fill=tk.X)
         top_frame.bind('<Button-1>', on_click)
-        
+
         match_id = match.get('match_id', '')
         if match_id:
-            match_id_label = tk.Label(
-                top_frame,
-                text=match_id,
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#ffffff',
-                bg='#e94560',
-                padx=10,
-                pady=5
-            )
+            match_id_label = tk.Label(top_frame, text=match_id, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#e94560', padx=int(10*s), pady=int(5*s))
             match_id_label.pack(side=tk.LEFT)
             match_id_label.bind('<Button-1>', on_click)
-        
+
         league_name = match.get('league', '')
         if league_name:
-            league_label = tk.Label(
-                top_frame,
-                text=league_name,
-                font=('Microsoft YaHei', 10),
-                fg='#ffffff',
-                bg='#e94560',
-                padx=10
-            )
+            league_label = tk.Label(top_frame, text=league_name, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#e94560', padx=int(10*s))
             league_label.pack(side=tk.LEFT)
             league_label.bind('<Button-1>', on_click)
-        
+
         match_time = match.get('match_time', '')
         if match_time:
-            time_label = tk.Label(
-                top_frame,
-                text=match_time,
-                font=('Microsoft YaHei', 10),
-                fg='#ffffff',
-                bg='#e94560',
-                padx=10
-            )
+            time_label = tk.Label(top_frame, text=match_time, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#e94560', padx=int(10*s))
             time_label.pack(side=tk.RIGHT)
             time_label.bind('<Button-1>', on_click)
-        
-        # 比赛信息
+
         info_frame = tk.Frame(card, bg='#1a1a2e')
-        info_frame.pack(fill=tk.X, pady=15, padx=10)
+        info_frame.pack(fill=tk.X, pady=int(15*s), padx=int(10*s))
         info_frame.bind('<Button-1>', on_click)
-        
-        # 主队
+
         home_team = match.get('home_team', '')
         if home_team:
-            home_label = tk.Label(
-                info_frame,
-                text=home_team,
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#00ff88',
-                bg='#1a1a2e',
-                anchor='w'
-            )
+            home_label = tk.Label(info_frame, text=home_team, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
             home_label.pack(fill=tk.X)
             home_label.bind('<Button-1>', on_click)
-        
-        # VS
-        vs_label = tk.Label(
-            info_frame,
-            text="VS",
-            font=('Microsoft YaHei', 12, 'bold'),
-            fg='#ffffff',
-            bg='#1a1a2e'
-        )
+
+        vs_label = tk.Label(info_frame, text="VS", font=('Microsoft YaHei', max(9, int(12*s)), 'bold'), fg='#ffffff', bg='#1a1a2e')
         vs_label.pack()
         vs_label.bind('<Button-1>', on_click)
-        
-        # 客队
+
         away_team = match.get('away_team', '')
         if away_team:
-            away_label = tk.Label(
-                info_frame,
-                text=away_team,
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#ff6b6b',
-                bg='#1a1a2e',
-                anchor='w'
-            )
+            away_label = tk.Label(info_frame, text=away_team, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
             away_label.pack(fill=tk.X)
             away_label.bind('<Button-1>', on_click)
-        
-        # 底部状态栏
+
         status_frame = tk.Frame(card, bg='#0f3460')
         status_frame.pack(fill=tk.X)
         status_frame.bind('<Button-1>', on_click)
-        
+
         status = match.get('status', '')
         if status:
-            status_label = tk.Label(
-                status_frame,
-                text=status,
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#ffffff',
-                bg='#0f3460',
-                padx=10,
-                pady=5
-            )
+            status_label = tk.Label(status_frame, text=status, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#0f3460', padx=int(10*s), pady=int(5*s))
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
-        
+
         score = match.get('score', '')
         if score:
-            score_label = tk.Label(
-                status_frame,
-                text=f"比分：{score}",
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#ffd700',
-                bg='#0f3460',
-                padx=10
-            )
+            score_label = tk.Label(status_frame, text=f"比分：{score}", font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffd700', bg='#0f3460', padx=int(10*s))
             score_label.pack(side=tk.RIGHT)
             score_label.bind('<Button-1>', on_click)
-        
-        # 盘口数据 - 显示让球盘口
+
         handicap = match.get('handicap', '')
-        
         if handicap:
-            # 创建盘口显示框架
             odds_frame = tk.Frame(status_frame, bg='#1a1a2e')
-            odds_frame.pack(side=tk.RIGHT, padx=5)
-            
-            # 盘口信息
-            handicap_label = tk.Label(
-                odds_frame,
-                text=f"盘口：{handicap}",
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#00ffff',
-                bg='#1a1a2e',
-                padx=10
-            )
+            odds_frame.pack(side=tk.RIGHT, padx=int(5*s))
+            handicap_label = tk.Label(odds_frame, text=f"盘口：{handicap}", font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#00ffff', bg='#1a1a2e', padx=int(10*s))
             handicap_label.pack(side=tk.RIGHT)
             handicap_label.bind('<Button-1>', on_click)
-        
+
         return card
     
     def fetch_web_analysis(self, match: Dict) -> str:
@@ -807,333 +777,43 @@ class MatchDisplayApp:
         return "\n".join(content) if content else "暂无盘口数据"
     
     def display_web_analysis(self, match: Dict, web_data: str, loading_label):
-        """显示网页分析数据"""
+        s = self.scale
         loading_label.destroy()
-        
-        # 创建滚动区域
         canvas = tk.Canvas(self.detail_frame, bg='#0f3460', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg='#0f3460')
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # 显示基本信息
-        self.display_basic_info(scrollable_frame, match)
-        
-        # 显示网页数据
+        # 绑定鼠标滚轮事件到详情画布，并切换当前滚动对象
+        canvas.bind("<MouseWheel>", lambda e: self._on_mousewheel(e, canvas))
+        canvas.bind("<Button-4>", lambda e: self._on_mousewheel(e, canvas))
+        canvas.bind("<Button-5>", lambda e: self._on_mousewheel(e, canvas))
+        # 鼠标进入详情区域时切换当前滚动对象
+        def on_enter_detail(event):
+            self.current_scroll_canvas = canvas
+        # 鼠标离开详情区域时切换回列表滚动对象
+        def on_leave_detail(event):
+            self.current_scroll_canvas = self.list_canvas
+        self.detail_frame.bind("<Enter>", on_enter_detail)
+        self.detail_frame.bind("<Leave>", on_leave_detail)
         if web_data:
-            web_label = tk.Label(
-                scrollable_frame,
-                text=web_data,
-                font=('Microsoft YaHei', 10),
-                fg='#ffffff',
-                bg='#0f3460',
-                justify=tk.LEFT,
-                anchor='w',
-                wraplength=800
-            )
-            web_label.pack(fill=tk.X, padx=20, pady=10)
-    
-    def display_basic_info(self, parent, match: Dict):
-        """显示基本信息"""
-        info_frame = tk.Frame(parent, bg='#16213e', padx=20, pady=15)
-        info_frame.pack(fill=tk.X, pady=10)
-        
-        # 比赛 ID
-        match_id = match.get('match_id', '')
-        if match_id:
-            id_label = tk.Label(
-                info_frame,
-                text=f"【{match_id}】",
-                font=('Microsoft YaHei', 16, 'bold'),
-                fg='#e94560',
-                bg='#16213e'
-            )
-            id_label.pack(anchor='w', pady=(0, 10))
-        
-        # 联赛和时间
-        league = match.get('league', '')
-        match_time = match.get('match_time', '')
-        if league or match_time:
-            info_text = f"{league} | {match_time}" if league and match_time else (league or match_time)
-            info_label = tk.Label(
-                info_frame,
-                text=info_text,
-                font=('Microsoft YaHei', 12),
-                fg='#ffffff',
-                bg='#16213e'
-            )
-            info_label.pack(anchor='w', pady=5)
-        
-        # 对阵信息
-        teams_frame = tk.Frame(info_frame, bg='#16213e')
-        teams_frame.pack(fill=tk.X, pady=15)
-        
-        home_team = match.get('home_team', '')
-        away_team = match.get('away_team', '')
-        
-        if home_team:
-            home_label = tk.Label(
-                teams_frame,
-                text=home_team,
-                font=('Microsoft YaHei', 18, 'bold'),
-                fg='#00ff88',
-                bg='#16213e'
-            )
-            home_label.pack(side=tk.LEFT, expand=True)
-        
-        vs_label = tk.Label(
-            teams_frame,
-            text="VS",
-            font=('Microsoft YaHei', 16, 'bold'),
-            fg='#ffffff',
-            bg='#16213e',
-            padx=20
-        )
-        vs_label.pack(side=tk.LEFT)
-        
-        if away_team:
-            away_label = tk.Label(
-                teams_frame,
-                text=away_team,
-                font=('Microsoft YaHei', 18, 'bold'),
-                fg='#ff6b6b',
-                bg='#16213e'
-            )
-            away_label.pack(side=tk.LEFT, expand=True)
-        
-        # 比分
-        score = match.get('score', '')
-        if score:
-            score_label = tk.Label(
-                info_frame,
-                text=f"比分：{score}",
-                font=('Microsoft YaHei', 16, 'bold'),
-                fg='#ffd700',
-                bg='#16213e'
-            )
-            score_label.pack(pady=10)
-        
-        # 状态
-        status = match.get('status', '')
-        if status:
-            status_label = tk.Label(
-                info_frame,
-                text=f"状态：{status}",
-                font=('Microsoft YaHei', 12),
-                fg='#00ffff',
-                bg='#16213e'
-            )
-            status_label.pack(pady=5)
+            web_label = tk.Label(scrollable_frame, text=web_data, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#0f3460', justify=tk.LEFT, anchor='w', wraplength=int(800*s))
+            web_label.pack(fill=tk.X, padx=int(20*s), pady=int(10*s))
     
     def show_match_detail(self, match: Dict):
-        """显示比赛详情"""
-        # 清空详情区域
+        s = self.scale
         for widget in self.detail_frame.winfo_children():
             widget.destroy()
-        
-        # 显示加载提示
-        loading_label = tk.Label(
-            self.detail_frame,
-            text="正在加载详细数据...",
-            font=('Microsoft YaHei', 16),
-            fg='#00ff88',
-            bg='#0f3460'
-        )
+        loading_label = tk.Label(self.detail_frame, text="正在加载详细数据...", font=('Microsoft YaHei', max(10, int(16*s))), fg='#00ff88', bg='#0f3460')
         loading_label.pack(expand=True)
-        
-        # 使用线程加载网页数据
         def load_web_data():
             web_data = self.fetch_web_analysis(match)
             self.root.after(0, lambda: self.display_web_analysis(match, web_data, loading_label))
-        
         thread = threading.Thread(target=load_web_data, daemon=True)
         thread.start()
-        
-        # 比赛 ID
-        match_id = match.get('match_id', '')
-        if match_id:
-            id_label = tk.Label(
-                self.detail_frame,
-                text=f"{match_id}",
-                font=('Microsoft YaHei', 20, 'bold'),
-                fg='#e94560',
-                bg='#0f3460'
-            )
-            id_label.pack(pady=10)
-        
-        # 联赛和时间
-        league = match.get('league', '')
-        match_time = match.get('match_time', '')
-        info_text = f"{league} | {match_time}" if league and match_time else (league or match_time or "信息暂缺")
-        
-        info_label = tk.Label(
-            self.detail_frame,
-            text=info_text,
-            font=('Microsoft YaHei', 14),
-            fg='#ffffff',
-            bg='#0f3460'
-        )
-        info_label.pack(pady=5)
-        
-        # 分隔线
-        sep1 = tk.Frame(self.detail_frame, height=2, bg='#e94560')
-        sep1.pack(fill=tk.X, pady=20)
-        
-        # 对阵信息
-        teams_frame = tk.Frame(self.detail_frame, bg='#0f3460')
-        teams_frame.pack(fill=tk.X, pady=20)
-        
-        # 主队
-        home_team = match.get('home_team', '')
-        if home_team:
-            home_frame = tk.Frame(teams_frame, bg='#0f3460')
-            home_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-            
-            home_label = tk.Label(
-                home_frame,
-                text=home_team,
-                font=('Microsoft YaHei', 18, 'bold'),
-                fg='#00ff88',
-                bg='#0f3460'
-            )
-            home_label.pack(pady=10)
-        
-        # VS
-        vs_label = tk.Label(
-            teams_frame,
-            text="VS",
-            font=('Microsoft YaHei', 24, 'bold'),
-            fg='#ffffff',
-            bg='#0f3460',
-            padx=30
-        )
-        vs_label.pack(side=tk.LEFT)
-        
-        # 客队
-        away_team = match.get('away_team', '')
-        if away_team:
-            away_frame = tk.Frame(teams_frame, bg='#0f3460')
-            away_frame.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
-            
-            away_label = tk.Label(
-                away_frame,
-                text=away_team,
-                font=('Microsoft YaHei', 18, 'bold'),
-                fg='#ff6b6b',
-                bg='#0f3460'
-            )
-            away_label.pack(pady=10)
-        
-        # 比分
-        score = match.get('score', '')
-        if score:
-            score_label = tk.Label(
-                self.detail_frame,
-                text=f"比分：{score}",
-                font=('Microsoft YaHei', 24, 'bold'),
-                fg='#ffd700',
-                bg='#0f3460'
-            )
-            score_label.pack(pady=20)
-        
-        # 分隔线
-        sep2 = tk.Frame(self.detail_frame, height=2, bg='#e94560')
-        sep2.pack(fill=tk.X, pady=20)
-        
-        # 状态
-        status = match.get('status', '')
-        if status:
-            status_frame = tk.Frame(self.detail_frame, bg='#16213e', padx=20, pady=10)
-            status_frame.pack(fill=tk.X, pady=10)
-            
-            status_title = tk.Label(
-                status_frame,
-                text="比赛状态:",
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#ffffff',
-                bg='#16213e'
-            )
-            status_title.pack(side=tk.LEFT)
-            
-            status_value = tk.Label(
-                status_frame,
-                text=status,
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#00ff88',
-                bg='#16213e'
-            )
-            status_value.pack(side=tk.RIGHT)
-        
-        # 盘口信息 - 显示初盘和即时盘
-        handicap = match.get('handicap', '')
-        odd_field = match.get('odd_field', '')
-        
-        if handicap or odd_field:
-            odds_frame = tk.Frame(self.detail_frame, bg='#16213e', padx=20, pady=10)
-            odds_frame.pack(fill=tk.X, pady=10)
-            
-            odds_title = tk.Label(
-                odds_frame,
-                text="盘口指数:",
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#ffffff',
-                bg='#16213e'
-            )
-            odds_title.pack(side=tk.LEFT)
-            
-            # 创建盘口信息显示
-            odds_info_frame = tk.Frame(odds_frame, bg='#16213e')
-            odds_info_frame.pack(side=tk.RIGHT)
-            
-            init_handicap = handicap if handicap else '-'
-            curr_handicap = odd_field if odd_field else handicap if handicap else '-'
-            
-            # 初盘
-            init_label = tk.Label(
-                odds_info_frame,
-                text=f"初盘：{init_handicap}",
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#ffa500',
-                bg='#16213e',
-                padx=10
-            )
-            init_label.pack(side=tk.LEFT)
-            
-            # 即时盘
-            curr_label = tk.Label(
-                odds_info_frame,
-                text=f"即时：{curr_handicap}",
-                font=('Microsoft YaHei', 14, 'bold'),
-                fg='#00ffff',
-                bg='#16213e',
-                padx=10
-            )
-            curr_label.pack(side=tk.LEFT)
-        
-        # 盘口分析按钮
-        analysis_btn = tk.Button(
-            self.detail_frame,
-            text="📊 查看盘口分析",
-            command=lambda: self.show_odds_analysis(match),
-            font=('Microsoft YaHei', 14, 'bold'),
-            bg='#e94560',
-            fg='#ffffff',
-            relief=tk.FLAT,
-            cursor='hand2',
-            padx=30,
-            pady=15
-        )
-        analysis_btn.pack(pady=30)
     
     def show_odds_analysis(self, match: Dict):
         """显示盘口分析"""
