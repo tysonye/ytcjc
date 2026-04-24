@@ -95,7 +95,7 @@ class OddsTableDisplay:
                 lbl.pack(side=tk.LEFT, fill=tk.Y)
     
     def create_info_card(self, match: Dict):
-        """创建比赛信息卡片"""
+        """创建比赛信息卡片 - 区分实际比分和竞彩比分"""
         s = self.scale
         
         # 主信息区
@@ -114,40 +114,66 @@ class OddsTableDisplay:
         tk.Label(header, text=f"  {league}", font=('Microsoft YaHei', max(10, int(12*s))),
                 fg='#00ff88', bg='#1a5f9e').pack(side=tk.LEFT)
         
-        # 对阵双方
+        # 对阵双方和比分
         teams_frame = tk.Frame(info_frame, bg='#1a5f9e')
         teams_frame.pack(fill=tk.X, padx=5, pady=5)
         
         home_team = match.get('home_team', '')
         away_team = match.get('away_team', '')
+        
+        # 实际比分 (全场)
         home_score = match.get('home_score', '')
         away_score = match.get('away_score', '')
+        # 竞彩比分 (半场)
+        home_jc = match.get('home_jc_score', '')
+        away_jc = match.get('away_jc_score', '')
         
         # 主队
         home_frame = tk.Frame(teams_frame, bg='#1a5f9e')
         home_frame.pack(side=tk.LEFT, expand=True)
         tk.Label(home_frame, text=home_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
                 fg='#ff6b6b', bg='#1a5f9e').pack()
-        # 显示比分，0也要显示
+        
+        # 实际比分 (大号显示)
         if home_score != '':
-            tk.Label(home_frame, text=home_score, font=('Microsoft YaHei', max(16, int(20*s)), 'bold'),
+            tk.Label(home_frame, text=home_score, font=('Microsoft YaHei', max(18, int(22*s)), 'bold'),
                     fg='#ffd700', bg='#1a5f9e').pack()
         
-        # VS
+        # VS 和比分说明
         vs_frame = tk.Frame(teams_frame, bg='#1a5f9e')
-        vs_frame.pack(side=tk.LEFT, padx=20)
+        vs_frame.pack(side=tk.LEFT, padx=15)
+        
+        # 如果有两种比分，显示说明
+        if (home_score != '' or away_score != '') and (home_jc != '' or away_jc != ''):
+            tk.Label(vs_frame, text="实际", font=('Microsoft YaHei', max(8, int(10*s))),
+                    fg='#00ff88', bg='#1a5f9e').pack()
+        
         tk.Label(vs_frame, text="VS", font=('Microsoft YaHei', max(14, int(16*s)), 'bold'),
                 fg='#ffffff', bg='#1a5f9e').pack()
+        
+        if (home_score != '' or away_score != '') and (home_jc != '' or away_jc != ''):
+            tk.Label(vs_frame, text="竞彩", font=('Microsoft YaHei', max(8, int(10*s))),
+                    fg='#ff6b6b', bg='#1a5f9e').pack()
         
         # 客队
         away_frame = tk.Frame(teams_frame, bg='#1a5f9e')
         away_frame.pack(side=tk.LEFT, expand=True)
         tk.Label(away_frame, text=away_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
                 fg='#4ecdc4', bg='#1a5f9e').pack()
-        # 显示比分，0也要显示
+        
+        # 实际比分 (大号显示)
         if away_score != '':
-            tk.Label(away_frame, text=away_score, font=('Microsoft YaHei', max(16, int(20*s)), 'bold'),
+            tk.Label(away_frame, text=away_score, font=('Microsoft YaHei', max(18, int(22*s)), 'bold'),
                     fg='#ffd700', bg='#1a5f9e').pack()
+        
+        # 竞彩比分区域 (如果与实际不同)
+        if (home_jc != '' or away_jc != '') and (home_jc != home_score or away_jc != away_score):
+            jc_frame = tk.Frame(info_frame, bg='#2a1a5e', bd=1, relief='solid')
+            jc_frame.pack(fill=tk.X, padx=5, pady=2)
+            
+            jc_text = f"竞彩比分: {home_jc}:{away_jc}"
+            tk.Label(jc_frame, text=jc_text, font=('Microsoft YaHei', max(10, int(12*s))),
+                    fg='#ffaaaa', bg='#2a1a5e').pack()
         
         # 状态和时间
         status_frame = tk.Frame(info_frame, bg='#1a5f9e')
@@ -210,17 +236,17 @@ class OddsTableDisplay:
         self.create_table('亚洲盘口 (让球)', headers, rows, [15, 30], '#4ecdc4')
     
     def create_match_stats(self, match: Dict):
-        """创建比赛统计"""
+        """创建比赛统计 - 区分实际比分和竞彩比分"""
         home_score = match.get('home_score', '')
         away_score = match.get('away_score', '')
-        home_half = match.get('home_half_score', '')
-        away_half = match.get('away_half_score', '')
+        home_jc = match.get('home_jc_score', '')
+        away_jc = match.get('away_jc_score', '')
         
         # 0也要显示，只有空字符串才显示为-
-        headers = ['', '全场', '半场']
+        headers = ['', '实际比分', '竞彩比分']
         rows = [
-            ['主队', home_score if home_score != '' else '-', home_half if home_half != '' else '-'],
-            ['客队', away_score if away_score != '' else '-', away_half if away_half != '' else '-']
+            ['主队', home_score if home_score != '' else '-', home_jc if home_jc != '' else '-'],
+            ['客队', away_score if away_score != '' else '-', away_jc if away_jc != '' else '-']
         ]
         
         self.create_table('比分统计', headers, rows, [10, 10, 10], '#ffd700')

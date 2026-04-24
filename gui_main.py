@@ -114,10 +114,12 @@ class MatchScraper:
                 away_team_id = fields[9] if len(fields) > 9 else ""
                 away_team_full = fields[10] if len(fields) > 10 else ""
                 
-                home_half_score = fields[11] if len(fields) > 11 else "0"
-                away_half_score = fields[12] if len(fields) > 12 else "0"
-                home_full_score = fields[13] if len(fields) > 13 else "0"
-                away_full_score = fields[14] if len(fields) > 14 else "0"
+                # 竞彩比分 (半场)
+                home_jc_score = fields[11] if len(fields) > 11 else ""
+                away_jc_score = fields[12] if len(fields) > 12 else ""
+                # 实际比分 (全场)
+                home_full_score = fields[13] if len(fields) > 13 else ""
+                away_full_score = fields[14] if len(fields) > 14 else ""
                 
                 red_yellow = fields[15] if len(fields) > 15 else ""
                 init_home_odd = fields[16] if len(fields) > 16 else ""
@@ -159,10 +161,8 @@ class MatchScraper:
                 status_text = status_map.get(status_code, '未知')
                 
                 # 完整比分 - 0:0也要显示
-                if home_half_score != '0' or away_half_score != '0':
-                    score = f"{home_full_score}:{away_full_score} (半:{home_half_score}:{away_half_score})"
-                else:
-                    score = f"{home_full_score}:{away_full_score}"
+                score = f"{home_full_score}:{away_full_score}"
+                jc_score = f"{home_jc_score}:{away_jc_score}"
                 
                 # 完整的数据！
                 match_info = {
@@ -182,10 +182,11 @@ class MatchScraper:
                     'away_team_id': away_team_id,
                     'away_team_full': away_team_full,
                     'score': score,
+                    'jc_score': jc_score,
                     'home_score': home_full_score,
                     'away_score': away_full_score,
-                    'home_half_score': home_half_score,
-                    'away_half_score': away_half_score,
+                    'home_jc_score': home_jc_score,
+                    'away_jc_score': away_jc_score,
                     'handicap': handicap,
                     'init_home_odd': init_home_odd,
                     'init_draw_odd': init_draw_odd,
