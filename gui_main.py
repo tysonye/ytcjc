@@ -262,7 +262,6 @@ class MatchScraper:
             return {}
 
     def _parse_jc_odds(self, content: str) -> Dict:
-        """解析竞彩指数JSON数据"""
         try:
             import json
             obj = json.loads(content)
@@ -273,22 +272,21 @@ class MatchScraper:
             wl = jc.get('wlOdds', {})
             if wl:
                 wl_live = wl.get('live', {})
-                wl_init = wl.get('init', {})
-                result['eu_init_home'] = wl_init.get('win', '')
-                result['eu_init_draw'] = wl_init.get('draw', '')
-                result['eu_init_away'] = wl_init.get('lose', '')
+                wl_first = wl.get('first', {})
+                result['eu_init_home'] = wl_first.get('win', '')
+                result['eu_init_draw'] = wl_first.get('draw', '')
+                result['eu_init_away'] = wl_first.get('lose', '')
                 result['eu_curr_home'] = wl_live.get('win', '')
                 result['eu_curr_draw'] = wl_live.get('draw', '')
                 result['eu_curr_away'] = wl_live.get('lose', '')
             sf = jc.get('sfOdds', {})
             if sf:
                 sf_live = sf.get('live', {})
-                sf_init = sf.get('init', {})
-                result['asian_init_hcp'] = sf_init.get('rf', '')
-                result['asian_init_home'] = sf_init.get('win', '')
-                result['asian_init_draw'] = sf_init.get('draw', '')
-                result['asian_init_away'] = sf_init.get('lose', '')
-                result['asian_curr_hcp'] = sf_live.get('rf', '')
+                sf_first = sf.get('first', {})
+                result['asian_hcp'] = sf.get('rf', '')
+                result['asian_init_home'] = sf_first.get('win', '')
+                result['asian_init_draw'] = sf_first.get('draw', '')
+                result['asian_init_away'] = sf_first.get('lose', '')
                 result['asian_curr_home'] = sf_live.get('win', '')
                 result['asian_curr_draw'] = sf_live.get('draw', '')
                 result['asian_curr_away'] = sf_live.get('lose', '')
