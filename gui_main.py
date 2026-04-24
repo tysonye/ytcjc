@@ -817,89 +817,59 @@ class MatchDisplayApp:
         return self.parse_web_content("", match)
     
     def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 显示所有数据"""
+        """解析网页内容 - 专业赔率显示格式"""
         lines = []
-        lines.append("")
-        lines.append("")
         lines.append("")
         
         # 标题
         lines.append("")
+        lines.append(f"        ┌──────────────────────────────────────────┐")
+        lines.append(f"        │           比赛详情: {match.get('match_id', '')}           │")
+        lines.append(f"        └──────────────────────────────────────────┘")
         lines.append("")
-        lines.append(f"     ★ 比赛详情 - {match.get('match_id', '')} ★")
-        lines.append("")
+        
+        # 对阵双方
+        home_team = match.get('home_team', '')
+        away_team = match.get('away_team', '')
+        lines.append(f"           {home_team}  VS  {away_team}")
         lines.append("")
         
         # 基本信息
         lines.append("")
-        lines.append("")
-        lines.append(f"     【 基本信息 】")
-        lines.append("")
-        lines.append(f"           比赛编号: {match.get('match_unique_id', '')}")
-        lines.append(f"           联赛: {match.get('league', '')}")
-        lines.append(f"           状态: {match.get('status', '')}")
-        lines.append(f"           比赛时间: {match.get('match_time', '')}")
-        
-        update_time = match.get('update_time', '')
-        if update_time:
-            lines.append(f"           更新时间: {update_time}")
+        lines.append(f"     ┌──────────────────────────────────────────────────┐")
+        lines.append(f"     │          基本信息                                 │")
+        lines.append(f"     ├──────────────────────────────────────────────────┤")
+        lines.append(f"     │ 联赛: {match.get('league', ''):<41}│")
+        lines.append(f"     │ 状态: {match.get('status', ''):<41}│")
+        lines.append(f"     │ 时间: {match.get('match_time', ''):<41}│")
         
         score = match.get('score', '')
         if score:
-            lines.append(f"           比分: {score}")
-        
-        lines.append("")
-        lines.append("")
-        
-        # 对阵双方
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 对阵双方 】")
-        lines.append("")
-        lines.append(f"           主队: {match.get('home_team', '')}")
-        lines.append(f"           主队ID: {match.get('home_team_id', '')}")
-        lines.append(f"           客队: {match.get('away_team', '')}")
-        lines.append(f"           客队ID: {match.get('away_team_id', '')}")
-        
-        lines.append("")
+            lines.append(f"     │ 比分: {score:<41}│")
+        lines.append(f"     └──────────────────────────────────────────────────┘")
         lines.append("")
         
-        # 胜平负赔率
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 胜平负赔率 】")
-        lines.append("")
-        
+        # 胜平负赔率表格
         init_home = match.get('init_home_odd', '')
         init_draw = match.get('init_draw_odd', '')
         init_away = match.get('init_away_odd', '')
-        
-        if init_home or init_draw or init_away:
-            lines.append(f"           初盘:")
-            lines.append(f"                  主胜: {init_home}")
-            lines.append(f"                  平局: {init_draw}")
-            lines.append(f"                  客胜: {init_away}")
-        
         curr_home = match.get('curr_home_odd', '')
         curr_draw = match.get('curr_draw_odd', '')
         curr_away = match.get('curr_away_odd', '')
         
-        if curr_home or curr_draw or curr_away:
-            lines.append(f"           即时:")
-            lines.append(f"                  主胜: {curr_home}")
-            lines.append(f"                  平局: {curr_draw}")
-            lines.append(f"                  客胜: {curr_away}")
-        
-        lines.append("")
+        lines.append(f"     ┌──────────────────────────────────────────────────┐")
+        lines.append(f"     │          胜平负赔率                               │")
+        lines.append(f"     ├───────────────┬───────────────┬──────────────────┤")
+        lines.append(f"     │     类型      │     主胜      │      平局       │      客胜       │")
+        lines.append(f"     ├───────────────┼───────────────┼──────────────────┤")
+        lines.append(f"     │     初盘      │  {init_home:<12} │  {init_draw:<12}   │  {init_away:<12}    │")
+        lines.append(f"     │     即时      │  {curr_home:<12} │  {curr_draw:<12}   │  {curr_away:<12}    │")
+        lines.append(f"     └───────────────┴───────────────┴──────────────────┘")
         lines.append("")
         
         # 让球盘口
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 让球盘口 】")
-        lines.append("")
-        
         handicap = match.get('handicap', '')
+        handicap_text = ""
         if handicap:
             try:
                 handicap_val = float(handicap)
@@ -909,46 +879,24 @@ class MatchDisplayApp:
                     handicap_text = f"客队让 {abs(handicap_val)} 球"
                 else:
                     handicap_text = "平手盘"
-                lines.append(f"           盘口: {handicap} ({handicap_text})")
             except:
-                lines.append(f"           盘口: {handicap}")
+                handicap_text = handicap
         
-        lines.append("")
+        lines.append(f"     ┌──────────────────────────────────────────────────┐")
+        lines.append(f"     │          让球盘口                                 │")
+        lines.append(f"     ├──────────────────────────────────────────────────┤")
+        lines.append(f"     │ 盘口: {handicap:<39} │")
+        if handicap_text:
+            lines.append(f"     │ 说明: {handicap_text:<39} │")
+        lines.append(f"     └──────────────────────────────────────────────────┘")
         lines.append("")
         
         # 其他数据
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 其他信息 】")
-        lines.append("")
-        
-        red_yellow = match.get('red_yellow', '')
-        if red_yellow:
-            lines.append(f"           红黄牌: {red_yellow}")
-        
-        other_flag = match.get('other_flag', '')
-        if other_flag:
-            lines.append(f"           其他标志: {other_flag}")
-        
-        raw_data = match.get('raw_data', [])
-        if raw_data:
-            lines.append(f"           原始数据字段: {len(raw_data)}")
-        
-        lines.append("")
-        lines.append("")
-        
-        # 显示所有原始数据！
-        lines.append("")
-        lines.append("")
-        lines.append(f"     【 原始数据 】")
-        lines.append("")
-        if raw_data:
-            for idx, val in enumerate(raw_data):
-                if val:
-                    lines.append(f"           [{idx}] {val}")
-        
-        lines.append("")
-        lines.append("")
+        lines.append(f"     ┌──────────────────────────────────────────────────┐")
+        lines.append(f"     │          其他信息                                 │")
+        lines.append(f"     ├──────────────────────────────────────────────────┤")
+        lines.append(f"     │ 比赛ID: {match.get('match_unique_id', ''):<34} │")
+        lines.append(f"     └──────────────────────────────────────────────────┘")
         lines.append("")
         lines.append("")
         
@@ -998,7 +946,7 @@ class MatchDisplayApp:
                 if not line:
                     line = ' '
                 
-                # 更美观的颜色方案
+                # 专业表格颜色方案
                 fg_color = '#c0c0c0'
                 bg_color = '#0f3460'
                 font_size = max(10, int(12*s))
@@ -1006,29 +954,37 @@ class MatchDisplayApp:
                 anchor = 'w'
                 
                 # 根据内容类型
-                if '★' in line:
+                if 'VS' in line or 'VS' in line:
                     fg_color = '#ffd700'
                     font_weight = 'bold'
                     font_size = max(14, int(16*s))
-                elif '【' in line and '】' in line:
+                    anchor = 'center'
+                elif '┌' in line or '└' in line or '├' in line or '┤' in line or '│' in line or '─' in line:
+                    fg_color = '#00ffff'
+                elif '基本信息' in line or '胜平负赔率' in line or '让球盘口' in line or '其他信息' in line:
                     fg_color = '#00ff88'
                     font_weight = 'bold'
                     font_size = max(12, int(14*s))
-                elif '主队:' in line or '客队:' in line or '联赛:' in line or '状态:' in line or '时间:' in line or '比分:' in line or '盘口:' in line:
+                elif '联赛:' in line or '状态:' in line or '时间:' in line or '比分:' in line or '盘口:' in line or '说明:' in line or '比赛ID:' in line:
                     fg_color = '#00ffff'
+                elif '类型' in line or '主胜' in line or '平局' in line or '客胜' in line:
+                    fg_color = '#ff6b6b'
+                    font_weight = 'bold'
+                elif '初盘' in line or '即时' in line:
+                    fg_color = '#ffd700'
                 else:
                     fg_color = '#e0e0e0'
                 
                 line_label = tk.Label(
                     scrollable_frame,
                     text=line,
-                    font=('Microsoft YaHei', font_size, font_weight),
+                    font=('Consolas', font_size, font_weight),
                     fg=fg_color,
                     bg=bg_color,
                     justify=tk.LEFT,
                     anchor=anchor
                 )
-                line_label.pack(fill=tk.X, padx=int(20*s), pady=int(3*s))
+                line_label.pack(fill=tk.X, padx=int(15*s), pady=int(2*s))
     
     def show_match_detail(self, match: Dict):
         s = self.scale
