@@ -125,18 +125,17 @@ class MatchScraper:
                 else:
                     match_time = ""
                 
-                # 获取赔率相关信息 - 欧洲指数
-                # 字段 [24-26]: 初盘赔率 (主胜、平局、客胜)
-                init_home_odd = fields[24] if len(fields) > 24 else ""
-                init_draw_odd = fields[25] if len(fields) > 25 else ""
-                init_away_odd = fields[26] if len(fields) > 26 else ""
-                
-                # 字段 [27-29]: 即时赔率 (主胜、平局、客胜)
-                curr_home_odd = fields[27] if len(fields) > 27 else ""
-                curr_draw_odd = fields[28] if len(fields) > 28 else ""
-                curr_away_odd = fields[29] if len(fields) > 29 else ""
-                
+                # 获取盘口数据
                 handicap = fields[22] if len(fields) > 22 else ""  # 让球/盘口
+                
+                # 数据源中只有盘口数据，欧洲指数需要从网页获取
+                # 这里先使用盘口数据作为占位
+                init_home_odd = ""
+                init_draw_odd = ""
+                init_away_odd = ""
+                curr_home_odd = ""
+                curr_draw_odd = ""
+                curr_away_odd = ""
                 
                 match_info = {
                     'match_id': match_id.strip(),
@@ -148,13 +147,13 @@ class MatchScraper:
                     'away_team': away_team.strip(),
                     'score': f"{home_score}:{away_score}" if home_score != '0' or away_score != '0' else '',
                     'league_id': league_id,
-                    'handicap': handicap,
-                    'init_home_odd': init_home_odd,  # 初盘主胜
-                    'init_draw_odd': init_draw_odd,  # 初盘平局
-                    'init_away_odd': init_away_odd,  # 初盘客胜
-                    'curr_home_odd': curr_home_odd,  # 即时主胜
-                    'curr_draw_odd': curr_draw_odd,  # 即时平局
-                    'curr_away_odd': curr_away_odd,  # 即时客胜
+                    'handicap': handicap,  # 盘口数据 (如：0.5, 0.25)
+                    'init_home_odd': init_home_odd,
+                    'init_draw_odd': init_draw_odd,
+                    'init_away_odd': init_away_odd,
+                    'curr_home_odd': curr_home_odd,
+                    'curr_draw_odd': curr_draw_odd,
+                    'curr_away_odd': curr_away_odd,
                     'raw_data': fields
                 }
                 matches.append(match_info)
@@ -697,126 +696,268 @@ class MatchDisplayApp:
             score_label.pack(side=tk.RIGHT)
             score_label.bind('<Button-1>', on_click)
         
-        # 欧洲指数 - 显示初盘和即时盘完整赔率
-        init_home = match.get('init_home_odd', '')
-        init_draw = match.get('init_draw_odd', '')
-        init_away = match.get('init_away_odd', '')
-        curr_home = match.get('curr_home_odd', '')
-        curr_draw = match.get('curr_draw_odd', '')
-        curr_away = match.get('curr_away_odd', '')
+        # 盘口数据 - 显示让球盘口
+        handicap = match.get('handicap', '')
         
-        if init_home or curr_home:
-            # 创建赔率显示框架
+        if handicap:
+            # 创建盘口显示框架
             odds_frame = tk.Frame(status_frame, bg='#1a1a2e')
             odds_frame.pack(side=tk.RIGHT, padx=5)
             
-            # 初盘赔率行
-            init_frame = tk.Frame(odds_frame, bg='#0f3460')
-            init_frame.pack(anchor='e', pady=2)
-            
-            init_label = tk.Label(
-                init_frame,
-                text="初",
-                font=('Microsoft YaHei', 9, 'bold'),
-                fg='#ffa500',
-                bg='#0f3460',
-                width=2
-            )
-            init_label.pack(side=tk.LEFT, padx=3)
-            
-            if init_home:
-                home_label = tk.Label(
-                    init_frame,
-                    text=init_home,
-                    font=('Microsoft YaHei', 9, 'bold'),
-                    fg='#ffa500',
-                    bg='#0f3460',
-                    width=5
-                )
-                home_label.pack(side=tk.LEFT, padx=2)
-                home_label.bind('<Button-1>', on_click)
-            
-            if init_draw:
-                draw_label = tk.Label(
-                    init_frame,
-                    text=init_draw,
-                    font=('Microsoft YaHei', 9, 'bold'),
-                    fg='#ffa500',
-                    bg='#0f3460',
-                    width=5
-                )
-                draw_label.pack(side=tk.LEFT, padx=2)
-                draw_label.bind('<Button-1>', on_click)
-            
-            if init_away:
-                away_label = tk.Label(
-                    init_frame,
-                    text=init_away,
-                    font=('Microsoft YaHei', 9, 'bold'),
-                    fg='#ffa500',
-                    bg='#0f3460',
-                    width=5
-                )
-                away_label.pack(side=tk.LEFT, padx=2)
-                away_label.bind('<Button-1>', on_click)
-            
-            # 即时赔率行
-            curr_frame = tk.Frame(odds_frame, bg='#0f3460')
-            curr_frame.pack(anchor='e', pady=2)
-            
-            curr_label = tk.Label(
-                curr_frame,
-                text="即",
-                font=('Microsoft YaHei', 9, 'bold'),
+            # 盘口信息
+            handicap_label = tk.Label(
+                odds_frame,
+                text=f"盘口：{handicap}",
+                font=('Microsoft YaHei', 10, 'bold'),
                 fg='#00ffff',
-                bg='#0f3460',
-                width=2
+                bg='#1a1a2e',
+                padx=10
             )
-            curr_label.pack(side=tk.LEFT, padx=3)
-            
-            if curr_home:
-                curr_home_label = tk.Label(
-                    curr_frame,
-                    text=curr_home,
-                    font=('Microsoft YaHei', 9, 'bold'),
-                    fg='#ff6b6b',
-                    bg='#0f3460',
-                    width=5
-                )
-                curr_home_label.pack(side=tk.LEFT, padx=2)
-                curr_home_label.bind('<Button-1>', on_click)
-            
-            if curr_draw:
-                curr_draw_label = tk.Label(
-                    curr_frame,
-                    text=curr_draw,
-                    font=('Microsoft YaHei', 9, 'bold'),
-                    fg='#00ff88',
-                    bg='#0f3460',
-                    width=5
-                )
-                curr_draw_label.pack(side=tk.LEFT, padx=2)
-                curr_draw_label.bind('<Button-1>', on_click)
-            
-            if curr_away:
-                curr_away_label = tk.Label(
-                    curr_frame,
-                    text=curr_away,
-                    font=('Microsoft YaHei', 9, 'bold'),
-                    fg='#00ff88',
-                    bg='#0f3460',
-                    width=5
-                )
-                curr_away_label.pack(side=tk.LEFT, padx=2)
-                curr_away_label.bind('<Button-1>', on_click)
+            handicap_label.pack(side=tk.RIGHT)
+            handicap_label.bind('<Button-1>', on_click)
         
         return card
+    
+    def fetch_web_analysis(self, match: Dict) -> str:
+        """从网页获取详细分析数据"""
+        # 从 raw_data 中获取比赛 ID
+        raw_data = match.get('raw_data', [])
+        if not raw_data or len(raw_data) < 1:
+            return "无法获取比赛 ID"
+        
+        # 尝试从 raw_data 中提取数字 ID
+        match_id = None
+        for field in raw_data:
+            if field.isdigit() and len(field) >= 6:
+                match_id = field
+                break
+        
+        if not match_id:
+            # 如果没有数字 ID，使用 match_id
+            return "该比赛暂无详细网页数据"
+        
+        url = f"http://zq.titan007.com/analysis/{match_id}.htm"
+        
+        try:
+            response = self.scraper.session.get(url, timeout=10)
+            response.encoding = 'utf-8'
+            
+            if response.status_code == 200:
+                return self.parse_web_content(response.text, match)
+            else:
+                return f"无法获取网页数据 (状态码：{response.status_code})"
+        except Exception as e:
+            return f"获取数据失败：{e}"
+    
+    def parse_web_content(self, html: str, match: Dict) -> str:
+        """解析网页内容 - 只显示盘口信息"""
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # 提取主要信息
+        content = []
+        
+        # 提取所有表格数据
+        tables = soup.find_all('table')
+        
+        # 1. 全场亚让盘（包含"全場"、"亚讓盤"、"贏盤"）
+        content.append("\n【全场亚盘】")
+        asian_found = False
+        for table in tables:
+            table_text = table.get_text(strip=True)
+            if '全場' in table_text and '亚讓盤' in table_text:
+                if not asian_found:
+                    asian_found = True
+                rows = table.find_all('tr')
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    row_data = [cell.get_text(strip=True) for cell in cells]
+                    if row_data and len(row_data) > 1:
+                        content.append("  ".join(row_data))
+        
+        # 2. 半场亚让盘（包含"半場"、"亚讓盤"）
+        content.append("\n【半场亚盘】")
+        half_asian_found = False
+        for table in tables:
+            table_text = table.get_text(strip=True)
+            if '半場' in table_text and '亚讓盤' in table_text:
+                if not half_asian_found:
+                    half_asian_found = True
+                rows = table.find_all('tr')
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    row_data = [cell.get_text(strip=True) for cell in cells]
+                    if row_data and len(row_data) > 1:
+                        content.append("  ".join(row_data))
+        
+        # 3. 进球数（包含"進球數"、"大球"、"小球"）
+        content.append("\n【进球数】")
+        goal_found = False
+        for table in tables:
+            table_text = table.get_text(strip=True)
+            if '進球數' in table_text and ('大球' in table_text or '小球' in table_text):
+                if not goal_found:
+                    goal_found = True
+                rows = table.find_all('tr')
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    row_data = [cell.get_text(strip=True) for cell in cells]
+                    if row_data and len(row_data) > 1:
+                        content.append("  ".join(row_data))
+        
+        return "\n".join(content) if content else "暂无盘口数据"
+    
+    def display_web_analysis(self, match: Dict, web_data: str, loading_label):
+        """显示网页分析数据"""
+        loading_label.destroy()
+        
+        # 创建滚动区域
+        canvas = tk.Canvas(self.detail_frame, bg='#0f3460', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#0f3460')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 显示基本信息
+        self.display_basic_info(scrollable_frame, match)
+        
+        # 显示网页数据
+        if web_data:
+            web_label = tk.Label(
+                scrollable_frame,
+                text=web_data,
+                font=('Microsoft YaHei', 10),
+                fg='#ffffff',
+                bg='#0f3460',
+                justify=tk.LEFT,
+                anchor='w',
+                wraplength=800
+            )
+            web_label.pack(fill=tk.X, padx=20, pady=10)
+    
+    def display_basic_info(self, parent, match: Dict):
+        """显示基本信息"""
+        info_frame = tk.Frame(parent, bg='#16213e', padx=20, pady=15)
+        info_frame.pack(fill=tk.X, pady=10)
+        
+        # 比赛 ID
+        match_id = match.get('match_id', '')
+        if match_id:
+            id_label = tk.Label(
+                info_frame,
+                text=f"【{match_id}】",
+                font=('Microsoft YaHei', 16, 'bold'),
+                fg='#e94560',
+                bg='#16213e'
+            )
+            id_label.pack(anchor='w', pady=(0, 10))
+        
+        # 联赛和时间
+        league = match.get('league', '')
+        match_time = match.get('match_time', '')
+        if league or match_time:
+            info_text = f"{league} | {match_time}" if league and match_time else (league or match_time)
+            info_label = tk.Label(
+                info_frame,
+                text=info_text,
+                font=('Microsoft YaHei', 12),
+                fg='#ffffff',
+                bg='#16213e'
+            )
+            info_label.pack(anchor='w', pady=5)
+        
+        # 对阵信息
+        teams_frame = tk.Frame(info_frame, bg='#16213e')
+        teams_frame.pack(fill=tk.X, pady=15)
+        
+        home_team = match.get('home_team', '')
+        away_team = match.get('away_team', '')
+        
+        if home_team:
+            home_label = tk.Label(
+                teams_frame,
+                text=home_team,
+                font=('Microsoft YaHei', 18, 'bold'),
+                fg='#00ff88',
+                bg='#16213e'
+            )
+            home_label.pack(side=tk.LEFT, expand=True)
+        
+        vs_label = tk.Label(
+            teams_frame,
+            text="VS",
+            font=('Microsoft YaHei', 16, 'bold'),
+            fg='#ffffff',
+            bg='#16213e',
+            padx=20
+        )
+        vs_label.pack(side=tk.LEFT)
+        
+        if away_team:
+            away_label = tk.Label(
+                teams_frame,
+                text=away_team,
+                font=('Microsoft YaHei', 18, 'bold'),
+                fg='#ff6b6b',
+                bg='#16213e'
+            )
+            away_label.pack(side=tk.LEFT, expand=True)
+        
+        # 比分
+        score = match.get('score', '')
+        if score:
+            score_label = tk.Label(
+                info_frame,
+                text=f"比分：{score}",
+                font=('Microsoft YaHei', 16, 'bold'),
+                fg='#ffd700',
+                bg='#16213e'
+            )
+            score_label.pack(pady=10)
+        
+        # 状态
+        status = match.get('status', '')
+        if status:
+            status_label = tk.Label(
+                info_frame,
+                text=f"状态：{status}",
+                font=('Microsoft YaHei', 12),
+                fg='#00ffff',
+                bg='#16213e'
+            )
+            status_label.pack(pady=5)
     
     def show_match_detail(self, match: Dict):
         """显示比赛详情"""
         # 清空详情区域
         for widget in self.detail_frame.winfo_children():
             widget.destroy()
+        
+        # 显示加载提示
+        loading_label = tk.Label(
+            self.detail_frame,
+            text="正在加载详细数据...",
+            font=('Microsoft YaHei', 16),
+            fg='#00ff88',
+            bg='#0f3460'
+        )
+        loading_label.pack(expand=True)
+        
+        # 使用线程加载网页数据
+        def load_web_data():
+            web_data = self.fetch_web_analysis(match)
+            self.root.after(0, lambda: self.display_web_analysis(match, web_data, loading_label))
+        
+        thread = threading.Thread(target=load_web_data, daemon=True)
+        thread.start()
         
         # 比赛 ID
         match_id = match.get('match_id', '')

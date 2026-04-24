@@ -1,5 +1,4 @@
 import requests
-import re
 
 url = "https://jc.titan007.com/xml/bf_jc.txt"
 session = requests.Session()
@@ -15,17 +14,15 @@ if len(parts) > 1:
     match_data = parts[1]
     match_entries = match_data.split('!')
     
-    print("查找赔率字段...")
-    
     # 查看前 3 场比赛
     for i, entry in enumerate(match_entries[:3]):
         fields = entry.split('^')
-        print(f"\n=== 比赛 {i+1}: {fields[4] if len(fields)>4 else 'N/A'} ===")
+        print(f"\n{'='*60}")
+        print(f"比赛 {i+1}: {fields[4] if len(fields)>4 else 'N/A'}")
+        print(f"字段总数：{len(fields)}")
         
-        # 查找所有包含小数点的字段（可能是赔率）
+        # 显示所有包含数字和小数点的字段
+        print("\n可能包含赔率的字段:")
         for j, field in enumerate(fields):
-            if field and re.match(r'^\d+\.\d+$', field):
+            if field and '.' in field and len(field) <= 10:
                 print(f"  [{j:2d}]: {field}")
-        
-        # 显示 20-30 字段（可能包含赔率）
-        print(f"  [20-30]: {[fields[k] for k in range(20, min(30, len(fields)))]}")
