@@ -127,7 +127,8 @@ class MatchScraper:
                     '0': '未开始',
                     '1': '进行中',
                     '2': '已完场',
-                    '3': '中场'
+                    '3': '中场',
+                    '-1': '已完场'
                 }
                 status_text = status_map.get(status, '未知')
                 
