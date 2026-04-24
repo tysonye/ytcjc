@@ -115,12 +115,6 @@ class MatchScraper:
                 away_jc_score = fields[14] if len(fields) > 14 else ""
 
                 red_yellow = fields[15] if len(fields) > 15 else ""
-                init_home_odd = fields[16] if len(fields) > 16 else ""
-                init_draw_odd = fields[17] if len(fields) > 17 else ""
-                init_away_odd = fields[18] if len(fields) > 18 else ""
-                curr_home_odd = fields[19] if len(fields) > 19 else ""
-                curr_draw_odd = fields[20] if len(fields) > 20 else ""
-                curr_away_odd = fields[21] if len(fields) > 21 else ""
                 handicap = fields[22] if len(fields) > 22 else ""
                 other_flag = fields[23] if len(fields) > 23 else ""
 
@@ -180,12 +174,6 @@ class MatchScraper:
                     'home_jc_score': home_jc_score,
                     'away_jc_score': away_jc_score,
                     'handicap': handicap,
-                    'init_home_odd': init_home_odd,
-                    'init_draw_odd': init_draw_odd,
-                    'init_away_odd': init_away_odd,
-                    'curr_home_odd': curr_home_odd,
-                    'curr_draw_odd': curr_draw_odd,
-                    'curr_away_odd': curr_away_odd,
                     'red_yellow': red_yellow,
                     'other_flag': other_flag,
                     'raw_data': fields
@@ -1344,12 +1332,32 @@ class MatchDisplayApp:
         lines.append("")
 
         # 胜平负赔率表格
-        init_home = match.get('init_home_odd', '')
-        init_draw = match.get('init_draw_odd', '')
-        init_away = match.get('init_away_odd', '')
-        curr_home = match.get('curr_home_odd', '')
-        curr_draw = match.get('curr_draw_odd', '')
-        curr_away = match.get('curr_away_odd', '')
+        init_home = ''
+        init_draw = ''
+        init_away = ''
+        curr_home = ''
+        curr_draw = ''
+        curr_away = ''
+        odds_trend = analysis_data.get('odds_trend', []) if analysis_data else []
+        for item in odds_trend:
+            if item.get('company_id') == '3' or item.get('company') == 'Crow*':
+                init_home = item.get('eu_init_home', '')
+                init_draw = item.get('eu_init_draw', '')
+                init_away = item.get('eu_init_away', '')
+                curr_home = item.get('eu_curr_home', '')
+                curr_draw = item.get('eu_curr_draw', '')
+                curr_away = item.get('eu_curr_away', '')
+                break
+        if not init_home:
+            for item in odds_trend:
+                if item.get('eu_init_home'):
+                    init_home = item.get('eu_init_home', '')
+                    init_draw = item.get('eu_init_draw', '')
+                    init_away = item.get('eu_init_away', '')
+                    curr_home = item.get('eu_curr_home', '')
+                    curr_draw = item.get('eu_curr_draw', '')
+                    curr_away = item.get('eu_curr_away', '')
+                    break
 
         lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
         lines.append(f"     │                       胜平负赔率                                  │")
