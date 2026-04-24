@@ -1011,11 +1011,9 @@ class MatchDisplayApp:
             widget.destroy()
         loading_label = tk.Label(self.detail_frame, text="正在加载详细数据...", font=('Microsoft YaHei', max(10, int(16*s))), fg='#00ff88', bg='#0f3460')
         loading_label.pack(expand=True)
-        def load_web_data():
-            web_data = self.fetch_web_analysis(match)
-            self.root.after(0, lambda: self.display_web_analysis(match, web_data, loading_label))
-        thread = threading.Thread(target=load_web_data, daemon=True)
-        thread.start()
+        
+        # 直接显示，不再重复调用
+        self.root.after(100, lambda: self.display_web_analysis(match, "", loading_label))
     
     def show_odds_analysis(self, match: Dict):
         """显示盘口分析"""
