@@ -493,12 +493,20 @@ class MatchDisplayApp:
             bg='#16213e'
         )
 
-        self.matches_list_frame.bind(
-            "<Configure>",
-            lambda e: self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
-        )
+        def on_frame_configure(event):
+            # 更新滚动区域
+            self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
+            # 更新frame宽度以匹配canvas
+            self.list_canvas.itemconfig("frame_window", width=event.width)
 
-        self.list_canvas.create_window((0, 0), window=self.matches_list_frame, anchor="nw")
+        def on_canvas_configure(event):
+            # 当canvas大小改变时，更新frame的宽度
+            self.list_canvas.itemconfig("frame_window", width=event.width)
+
+        self.matches_list_frame.bind("<Configure>", on_frame_configure)
+        self.list_canvas.bind("<Configure>", on_canvas_configure)
+
+        self.list_canvas.create_window((0, 0), window=self.matches_list_frame, anchor="nw", tags="frame_window")
         self.list_canvas.configure(yscrollcommand=scrollbar.set)
 
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -545,15 +553,24 @@ class MatchDisplayApp:
             canvas = self.current_scroll_canvas
         if canvas is None:
             return
-        if event.num == 4 or event.num == 5:
-            # Linux/macOS
-            if event.num == 4:
-                canvas.yview_scroll(-1, "units")
+        
+        try:
+            if event.num == 4 or event.num == 5:
+                # Linux/macOS
+                if event.num == 4:
+                    canvas.yview_scroll(-1, "units")
+                else:
+                    canvas.yview_scroll(1, "units")
             else:
-                canvas.yview_scroll(1, "units")
-        else:
-            # Windows
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                # Windows
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            
+            # 确保滚动不会超出边界
+            scroll_pos = canvas.yview()
+            if scroll_pos[0] < 0:
+                canvas.yview_moveto(0)
+        except Exception as e:
+            print(f"滚动错误: {e}")
     
     def update_time(self):
         """更新时间"""
@@ -836,8 +853,18 @@ class MatchDisplayApp:
         canvas = tk.Canvas(self.detail_frame, bg='#0f3460', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg='#0f3460')
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        
+        def on_detail_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig("detail_frame_window", width=event.width)
+        
+        def on_detail_canvas_configure(event):
+            canvas.itemconfig("detail_frame_window", width=event.width)
+        
+        scrollable_frame.bind("<Configure>", on_detail_frame_configure)
+        canvas.bind("<Configure>", on_detail_canvas_configure)
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", tags="detail_frame_window")
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
