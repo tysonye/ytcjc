@@ -625,52 +625,49 @@ class OddsTableDisplay:
                     fg='#cc0000', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
 
     def create_european_odds_table(self, match: Dict, analysis_data: Dict = None):
-        """创建简版欧洲指数表格 - 优先从竞彩指数获取数据"""
-        init_home = ''
-        init_draw = ''
-        init_away = ''
-        curr_home = ''
-        curr_draw = ''
-        curr_away = ''
-        company = '竞彩指数'
+        """创建竞彩指数表格 - 匹配网站格式
+        第一行: 胜平负 (主胜/平局/客胜)
+        第二行: 让球胜平负 (让球数/主胜/平局/客胜)
+        """
+        s = self.scale
+        char_width = max(7, int(9 * s))
+        font = ('Microsoft YaHei', char_width)
+        font_bold = ('Microsoft YaHei', char_width, 'bold')
+
+        wl_home = wl_draw = wl_away = ''
+        sf_hcp = sf_home = sf_draw = sf_away = ''
+        is_jc = False
 
         if analysis_data:
             jc = analysis_data.get('jc_odds', {})
             if jc and jc.get('eu_curr_home'):
-                init_home = jc.get('eu_init_home', '')
-                init_draw = jc.get('eu_init_draw', '')
-                init_away = jc.get('eu_init_away', '')
-                curr_home = jc.get('eu_curr_home', '')
-                curr_draw = jc.get('eu_curr_draw', '')
-                curr_away = jc.get('eu_curr_away', '')
+                wl_home = jc.get('eu_curr_home', '')
+                wl_draw = jc.get('eu_curr_draw', '')
+                wl_away = jc.get('eu_curr_away', '')
+                sf_hcp = jc.get('asian_curr_hcp', '')
+                sf_home = jc.get('asian_curr_home', '')
+                sf_draw = jc.get('asian_curr_draw', '')
+                sf_away = jc.get('asian_curr_away', '')
+                is_jc = True
 
-        if not init_home and analysis_data:
-            instant = analysis_data.get('instant_eu_odds', {})
-            if instant:
-                company = instant.get('company', '')
-                init_home = instant.get('init_home', '')
-                init_draw = instant.get('init_draw', '')
-                init_away = instant.get('init_away', '')
-                curr_home = instant.get('curr_home', '')
-                curr_draw = instant.get('curr_draw', '')
-                curr_away = instant.get('curr_away', '')
-
-        if not init_home and analysis_data:
-            odds_trend = analysis_data.get('odds_trend', [])
-            for item in odds_trend:
-                if item.get('company_id') == '3' or item.get('company') == 'Crow*':
-                    init_home = item.get('eu_init_home', '')
-                    init_draw = item.get('eu_init_draw', '')
-                    init_away = item.get('eu_init_away', '')
-                    curr_home = item.get('eu_curr_home', '')
-                    curr_draw = item.get('eu_curr_draw', '')
-                    curr_away = item.get('eu_curr_away', '')
-                    company = item.get('company', '')
-                    break
-            if not init_home:
+        if not is_jc:
+            init_home = init_draw = init_away = ''
+            curr_home = curr_draw = curr_away = ''
+            company = ''
+            if analysis_data:
+                instant = analysis_data.get('instant_eu_odds', {})
+                if instant:
+                    company = instant.get('company', '')
+                    init_home = instant.get('init_home', '')
+                    init_draw = instant.get('init_draw', '')
+                    init_away = instant.get('init_away', '')
+                    curr_home = instant.get('curr_home', '')
+                    curr_draw = instant.get('curr_draw', '')
+                    curr_away = instant.get('curr_away', '')
+            if not curr_home and analysis_data:
+                odds_trend = analysis_data.get('odds_trend', [])
                 for item in odds_trend:
-                    ih = item.get('eu_init_home', '')
-                    if ih:
+                    if item.get('company_id') == '3' or item.get('company') == 'Crow*':
                         init_home = item.get('eu_init_home', '')
                         init_draw = item.get('eu_init_draw', '')
                         init_away = item.get('eu_init_away', '')
@@ -679,20 +676,95 @@ class OddsTableDisplay:
                         curr_away = item.get('eu_curr_away', '')
                         company = item.get('company', '')
                         break
+            has_data = any([init_home, init_draw, init_away, curr_home, curr_draw, curr_away])
+            if not has_data:
+                return
+            title = f'即时赔率 ({company})' if company else '即时赔率'
+            headers = ['', '主胜', '平局', '客胜']
+            col_widths = [10, 12, 12, 12]
+            rows = [
+                ['初盘', init_home or '-', init_draw or '-', init_away or '-'],
+                ['即时', curr_home or '-', curr_draw or '-', curr_away or '-']
+            ]
+            self.create_odds_table_web_style(title, headers, rows, col_widths)
+            return
 
-        has_data = any([init_home, init_draw, init_away, curr_home, curr_draw, curr_away])
+        has_data = any([wl_home, wl_draw, wl_away, sf_home, sf_draw, sf_away])
         if not has_data:
             return
 
-        title = f'即时赔率 ({company})' if company else '即时赔率'
-        headers = ['', '主胜', '平局', '客胜']
-        col_widths = [10, 12, 12, 12]
-        rows = [
-            ['初盘', init_home or '-', init_draw or '-', init_away or '-'],
-            ['即时', curr_home or '-', curr_draw or '-', curr_away or '-']
-        ]
+        self.create_section_title('竞彩指数')
 
-        self.create_odds_table_web_style(title, headers, rows, col_widths)
+        table_outer = tk.Frame(self.parent, bg=self.border_color, bd=1)
+        table_outer.pack(fill=tk.X, padx=5, pady=(0, 10))
+
+        container = tk.Frame(table_outer, bg=self.border_color)
+        container.pack(fill=tk.X)
+
+        header_bg = '#FDEFD2'
+        sub_bg = '#ECF4FB'
+        row_bg1 = '#FFFFFF'
+        row_bg2 = '#FFFFFF'
+
+        # Row 0: Header - 胜平负/亚让 | 进球数
+        lbl = tk.Label(container, text='胜平负/亚让', font=font_bold, fg='#333333',
+                       bg=header_bg, width=14, relief='solid', bd=1, padx=1, pady=2)
+        lbl.grid(row=0, column=0, columnspan=4, sticky='nsew')
+
+        goal_header = '进球数' if analysis_data.get('jc_odds', {}).get('goal_curr_g0') else ''
+        if goal_header:
+            lbl2 = tk.Label(container, text=goal_header, font=font_bold, fg='#333333',
+                            bg=header_bg, width=22, relief='solid', bd=1, padx=1, pady=2)
+            lbl2.grid(row=0, column=4, columnspan=8, sticky='nsew')
+
+        # Row 1: 全场 header + 胜平负 values
+        lbl_type = tk.Label(container, text='全场', font=font_bold, fg='#333333',
+                            bg=sub_bg, width=6, relief='solid', bd=1, padx=1, pady=2)
+        lbl_type.grid(row=1, column=0, rowspan=2, sticky='nsew')
+
+        wl_vals = [wl_home, wl_draw, wl_away]
+        wl_labels = ['主胜', '平局', '客胜']
+        for i, (val, lbl_text) in enumerate(zip(wl_vals, wl_labels)):
+            lbl = tk.Label(container, text=val or '-', font=font_bold if val else font,
+                           fg='#333333', bg=row_bg1, width=6, relief='solid', bd=1, padx=1, pady=2)
+            lbl.grid(row=1, column=1 + i, sticky='nsew')
+
+        # Goal odds
+        jc = analysis_data.get('jc_odds', {})
+        if jc.get('goal_curr_g0'):
+            goal_labels = ['0球', '1球', '2球', '3球', '4球', '5球', '6球', '7+球']
+            goal_vals = [jc.get(f'goal_curr_g{i}', '') for i in range(8)]
+            for i, (val, lbl_text) in enumerate(zip(goal_vals, goal_labels)):
+                lbl = tk.Label(container, text=val or '-', font=font,
+                               fg='#333333', bg=row_bg1, width=5, relief='solid', bd=1, padx=1, pady=2)
+                lbl.grid(row=1, column=4 + i, sticky='nsew')
+
+        # Row 2: 让球胜平负
+        hcp_text = ''
+        if sf_hcp:
+            try:
+                hcp_val = float(sf_hcp)
+                hcp_text = str(int(hcp_val)) if hcp_val == int(hcp_val) else sf_hcp
+            except:
+                hcp_text = sf_hcp
+
+        sf_vals = [hcp_text, sf_home, sf_draw, sf_away]
+        sf_labels = ['让球', '主胜', '平局', '客胜']
+        for i, (val, lbl_text) in enumerate(zip(sf_vals, sf_labels)):
+            fg_color = '#cc0000' if i == 0 and val else '#333333'
+            lbl = tk.Label(container, text=val or '-', font=font_bold if (i == 0 and val) else font,
+                           fg=fg_color, bg=row_bg2, width=6, relief='solid', bd=1, padx=1, pady=2)
+            lbl.grid(row=2, column=1 + i, sticky='nsew')
+
+        # Goal odds row 2 (same as row 1 for now - they share the same data)
+        if jc.get('goal_curr_g0'):
+            for i in range(8):
+                lbl = tk.Label(container, text='', font=font,
+                               fg='#333333', bg=row_bg2, width=5, relief='solid', bd=1, padx=1, pady=2)
+                lbl.grid(row=2, column=4 + i, sticky='nsew')
+
+        for c in range(12):
+            container.grid_columnconfigure(c, weight=1)
 
     def create_asian_handicap_table(self, match: Dict):
         """创建简版亚洲盘口表格"""
