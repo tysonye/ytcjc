@@ -763,8 +763,10 @@ class MatchDisplayApp:
         # 获取比分 - 使用独立字段
         home_score = match.get('home_score', '')
         away_score = match.get('away_score', '')
+        home_jc = match.get('home_jc_score', '')
+        away_jc = match.get('away_jc_score', '')
         has_score = False
-        if home_score and home_score != '0' or away_score and away_score != '0':
+        if home_score != '' or away_score != '':
             has_score = True
 
         # 主队信息
@@ -776,10 +778,22 @@ class MatchDisplayApp:
 
         # 比分显示
         if has_score:
+            # 主比分显示区域
+            score_frame = tk.Frame(info_frame, bg='#1a1a2e')
+            score_frame.grid(row=0, column=1, rowspan=2, padx=10)
+            
+            # 实际比分
             score_text = f"{home_score} - {away_score}"
-            score_label = tk.Label(info_frame, text=score_text, font=('Microsoft YaHei', max(12, int(18*s)), 'bold'), fg='#ffd700', bg='#1a1a2e')
-            score_label.grid(row=0, column=1, rowspan=2, padx=10)
+            score_label = tk.Label(score_frame, text=score_text, font=('Microsoft YaHei', max(12, int(18*s)), 'bold'), fg='#ffd700', bg='#1a1a2e')
+            score_label.pack()
             score_label.bind('<Button-1>', on_click)
+            
+            # 竞彩比分 (括号内显示)
+            if home_jc != '' or away_jc != '':
+                jc_text = f"({home_jc}:{away_jc})"
+                jc_label = tk.Label(score_frame, text=jc_text, font=('Microsoft YaHei', max(8, int(10*s))), fg='#aaaaaa', bg='#1a1a2e')
+                jc_label.pack()
+                jc_label.bind('<Button-1>', on_click)
 
         # 客队信息
         away_team = match.get('away_team', '')
