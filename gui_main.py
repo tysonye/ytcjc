@@ -697,9 +697,17 @@ class MatchDisplayApp:
         info_frame.pack(fill=tk.X, pady=int(15*s), padx=int(10*s))
         info_frame.bind('<Button-1>', on_click)
 
+        # 获取比分
+        score = match.get('score', '')
+        home_score = ''
+        away_score = ''
+        if score and ':' in score:
+            home_score, away_score = score.split(':')
+
         home_team = match.get('home_team', '')
         if home_team:
-            home_label = tk.Label(info_frame, text=home_team, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
+            home_text = f"{home_team}  {home_score}" if home_score else home_team
+            home_label = tk.Label(info_frame, text=home_text, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
             home_label.pack(fill=tk.X)
             home_label.bind('<Button-1>', on_click)
 
@@ -709,7 +717,8 @@ class MatchDisplayApp:
 
         away_team = match.get('away_team', '')
         if away_team:
-            away_label = tk.Label(info_frame, text=away_team, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
+            away_text = f"{away_score}  {away_team}" if away_score else away_team
+            away_label = tk.Label(info_frame, text=away_text, font=('Microsoft YaHei', max(10, int(14*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
             away_label.pack(fill=tk.X)
             away_label.bind('<Button-1>', on_click)
 
@@ -722,12 +731,6 @@ class MatchDisplayApp:
             status_label = tk.Label(status_frame, text=status, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#0f3460', padx=int(10*s), pady=int(5*s))
             status_label.pack(side=tk.LEFT)
             status_label.bind('<Button-1>', on_click)
-
-        score = match.get('score', '')
-        if score:
-            score_label = tk.Label(status_frame, text=f"比分：{score}", font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffd700', bg='#0f3460', padx=int(10*s))
-            score_label.pack(side=tk.RIGHT)
-            score_label.bind('<Button-1>', on_click)
 
         handicap = match.get('handicap', '')
         if handicap:
