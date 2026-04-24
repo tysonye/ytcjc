@@ -250,84 +250,122 @@ class MatchScraper:
             return []
 
     def fetch_jc_odds(self, schedule_id: str) -> Dict:
-        """获取竞彩指数数据 - 从live.titan007.com/jsData/获取sOdds"""
+        """获取竞彩指数数据 - 从/getAnalyData API获取"""
         try:
-            path = schedule_id[:2] + "/" + schedule_id[2:4] + "/"
-            url = f"https://live.titan007.com/jsData/{path}{schedule_id}.js"
+            url = f"https://zq.titan007.com/default/getAnalyData?sid={schedule_id}&t=1&r={int(__import__('time').time()*1000)}"
             response = self.session.get(url, timeout=10)
             if response.status_code != 200:
                 return {}
-            content = response.content.decode('utf-8', errors='replace')
-            return self._parse_jc_odds(content)
+            return self._parse_jc_odds(response.text)
         except Exception as e:
             print(f"获取竞彩指数失败: {e}")
             return {}
 
     def _parse_jc_odds(self, content: str) -> Dict:
-        """解析sOdds竞彩指数数据
-        sOdds[0] = [时间, 主分, 客分,
-          让球半场: [3]主水,[4]盘口,[5]客水,[6]主水即时,[7]盘口即时,[8]客水即时,
-          让球全场: [9]主水,[10]盘口,[11]客水,[12]主水即时,[13]盘口即时,[14]客水即时,
-          进球数半场: [15]大水,[16]盘口,[17]小水,[18]大水即时,[19]盘口即时,[20]小水即时,
-          进球数全场: [21]大水,[22]盘口,[23]小水,[24]大水即时,[25]盘口即时,[26]小水即时,
-          欧指半场: [27]主胜,[28]平局,[29]客胜,[30]主胜即时,[31]平局即时,[32]客胜即时,
-          欧指全场: [33]主胜,[34]平局,[35]客胜,[36]主胜即时,[37]平局即时,[38]客胜即时,
-          [39]状态, ...
-        ]
-        """
-        match = re.search(r'var\s+sOdds\s*=\s*\[\[(.+?)\]\]', content)
-        if not match:
+        """解析竞彩指数JSON数据"""
+        try:
+            import json
+            obj = json.loads(content)
+            jc = obj.get('jcOdds', {})
+            if not jc:
+                return {}
+            result = {}
+            wl = jc.get('wlOdds', {})
+            if wl:
+                wl_live = wl.get('live', {})
+                wl_init = wl.get('init', {})
+                result['eu_init_home'] = wl_init.get('win', '')
+                result['eu_init_draw'] = wl_init.get('draw', '')
+                result['eu_init_away'] = wl_init.get('lose', '')
+                result['eu_curr_home'] = wl_live.get('win', '')
+                result['eu_curr_draw'] = wl_live.get('draw', '')
+                result['eu_curr_away'] = wl_live.get('lose', '')
+            sf = jc.get('sfOdds', {})
+            if sf:
+                sf_live = sf.get('live', {})
+                sf_init = sf.get('init', {})
+                result['asian_init_hcp'] = sf_init.get('rf', '')
+                result['asian_init_home'] = sf_init.get('win', '')
+                result['asian_init_draw'] = sf_init.get('draw', '')
+                result['asian_init_away'] = sf_init.get('lose', '')
+                result['asian_curr_hcp'] = sf_live.get('rf', '')
+                result['asian_curr_home'] = sf_live.get('win', '')
+                result['asian_curr_draw'] = sf_live.get('draw', '')
+                result['asian_curr_away'] = sf_live.get('lose', '')
+            goal = jc.get('goalOdds', {})
+            if goal:
+                goal_live = goal.get('live', {})
+                goal_init = goal.get('init', {})
+                result['goal_init_g0'] = goal_init.get('g0', '')
+                result['goal_init_g1'] = goal_init.get('g1', '')
+                result['goal_init_g2'] = goal_init.get('g2', '')
+                result['goal_init_g3'] = goal_init.get('g3', '')
+                result['goal_init_g4'] = goal_init.get('g4', '')
+                result['goal_init_g5'] = goal_init.get('g5', '')
+                result['goal_init_g6'] = goal_init.get('g6', '')
+                result['goal_init_g7'] = goal_init.get('g7', '')
+                result['goal_curr_g0'] = goal_live.get('g0', '')
+                result['goal_curr_g1'] = goal_live.get('g1', '')
+                result['goal_curr_g2'] = goal_live.get('g2', '')
+                result['goal_curr_g3'] = goal_live.get('g3', '')
+                result['goal_curr_g4'] = goal_live.get('g4', '')
+                result['goal_curr_g5'] = goal_live.get('g5', '')
+                result['goal_curr_g6'] = goal_live.get('g6', '')
+                result['goal_curr_g7'] = goal_live.get('g7', '')
+            score = jc.get('scoreOdds', {})
+            if score:
+                score_live = score.get('live', {})
+                result['score_live'] = {
+                    '10': score_live.get('score10', ''),
+                    '20': score_live.get('score20', ''),
+                    '21': score_live.get('score21', ''),
+                    '30': score_live.get('score30', ''),
+                    '31': score_live.get('score31', ''),
+                    '32': score_live.get('score32', ''),
+                    '40': score_live.get('score40', ''),
+                    '41': score_live.get('score41', ''),
+                    '42': score_live.get('score42', ''),
+                    '50': score_live.get('score50', ''),
+                    '51': score_live.get('score51', ''),
+                    '52': score_live.get('score52', ''),
+                    'win_other': score_live.get('scoreWin', ''),
+                    '00': score_live.get('score00', ''),
+                    '11': score_live.get('score11', ''),
+                    '22': score_live.get('score22', ''),
+                    '33': score_live.get('score33', ''),
+                    'draw_other': score_live.get('scoreDraw', ''),
+                    '01': score_live.get('score01', ''),
+                    '02': score_live.get('score02', ''),
+                    '12': score_live.get('score12', ''),
+                    '03': score_live.get('score03', ''),
+                    '13': score_live.get('score13', ''),
+                    '23': score_live.get('score23', ''),
+                    '04': score_live.get('score04', ''),
+                    '14': score_live.get('score14', ''),
+                    '24': score_live.get('score24', ''),
+                    '05': score_live.get('score05', ''),
+                    '15': score_live.get('score15', ''),
+                    '25': score_live.get('score25', ''),
+                    'lose_other': score_live.get('scoreLose', ''),
+                }
+            hf = jc.get('hfOdds', {})
+            if hf:
+                hf_live = hf.get('live', {})
+                result['hf_live'] = {
+                    'ww': hf_live.get('hfww', ''),
+                    'wd': hf_live.get('hfwd', ''),
+                    'wl': hf_live.get('hfwl', ''),
+                    'dw': hf_live.get('hfdw', ''),
+                    'dd': hf_live.get('hfdd', ''),
+                    'dl': hf_live.get('hfdl', ''),
+                    'lw': hf_live.get('hflw', ''),
+                    'ld': hf_live.get('hfld', ''),
+                    'll': hf_live.get('hfll', ''),
+                }
+            return result
+        except Exception as e:
+            print(f"解析竞彩指数失败: {e}")
             return {}
-        raw = match.group(1)
-        vals = raw.split(',')
-        if len(vals) < 39:
-            return {}
-
-        def safe_float(idx):
-            try:
-                v = vals[idx].strip().strip("'\"")
-                return v if v else ''
-            except:
-                return ''
-
-        return {
-            'asian_half_init_home': safe_float(3),
-            'asian_half_init_hcp': safe_float(4),
-            'asian_half_init_away': safe_float(5),
-            'asian_half_curr_home': safe_float(6),
-            'asian_half_curr_hcp': safe_float(7),
-            'asian_half_curr_away': safe_float(8),
-            'asian_full_init_home': safe_float(9),
-            'asian_full_init_hcp': safe_float(10),
-            'asian_full_init_away': safe_float(11),
-            'asian_full_curr_home': safe_float(12),
-            'asian_full_curr_hcp': safe_float(13),
-            'asian_full_curr_away': safe_float(14),
-            'goal_half_init_big': safe_float(15),
-            'goal_half_init_line': safe_float(16),
-            'goal_half_init_small': safe_float(17),
-            'goal_half_curr_big': safe_float(18),
-            'goal_half_curr_line': safe_float(19),
-            'goal_half_curr_small': safe_float(20),
-            'goal_full_init_big': safe_float(21),
-            'goal_full_init_line': safe_float(22),
-            'goal_full_init_small': safe_float(23),
-            'goal_full_curr_big': safe_float(24),
-            'goal_full_curr_line': safe_float(25),
-            'goal_full_curr_small': safe_float(26),
-            'eu_half_init_home': safe_float(27),
-            'eu_half_init_draw': safe_float(28),
-            'eu_half_init_away': safe_float(29),
-            'eu_half_curr_home': safe_float(30),
-            'eu_half_curr_draw': safe_float(31),
-            'eu_half_curr_away': safe_float(32),
-            'eu_full_init_home': safe_float(33),
-            'eu_full_init_draw': safe_float(34),
-            'eu_full_init_away': safe_float(35),
-            'eu_full_curr_home': safe_float(36),
-            'eu_full_curr_draw': safe_float(37),
-            'eu_full_curr_away': safe_float(38),
-        }
 
     def _parse_odds_trend(self, content: str) -> List[Dict]:
         """解析走势数据 - /analysis/odds/ 响应格式
@@ -1453,12 +1491,12 @@ class MatchDisplayApp:
         curr_away = ''
         jc = analysis_data.get('jc_odds', {}) if analysis_data else {}
         if jc:
-            init_home = jc.get('eu_full_init_home', '')
-            init_draw = jc.get('eu_full_init_draw', '')
-            init_away = jc.get('eu_full_init_away', '')
-            curr_home = jc.get('eu_full_curr_home', '')
-            curr_draw = jc.get('eu_full_curr_draw', '')
-            curr_away = jc.get('eu_full_curr_away', '')
+            init_home = jc.get('eu_init_home', '')
+            init_draw = jc.get('eu_init_draw', '')
+            init_away = jc.get('eu_init_away', '')
+            curr_home = jc.get('eu_curr_home', '')
+            curr_draw = jc.get('eu_curr_draw', '')
+            curr_away = jc.get('eu_curr_away', '')
         if not init_home:
             instant = analysis_data.get('instant_eu_odds', {}) if analysis_data else {}
             if instant:

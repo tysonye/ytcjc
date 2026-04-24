@@ -637,12 +637,12 @@ class OddsTableDisplay:
         if analysis_data:
             jc = analysis_data.get('jc_odds', {})
             if jc:
-                init_home = jc.get('eu_full_init_home', '')
-                init_draw = jc.get('eu_full_init_draw', '')
-                init_away = jc.get('eu_full_init_away', '')
-                curr_home = jc.get('eu_full_curr_home', '')
-                curr_draw = jc.get('eu_full_curr_draw', '')
-                curr_away = jc.get('eu_full_curr_away', '')
+                init_home = jc.get('eu_init_home', '')
+                init_draw = jc.get('eu_init_draw', '')
+                init_away = jc.get('eu_init_away', '')
+                curr_home = jc.get('eu_curr_home', '')
+                curr_draw = jc.get('eu_curr_draw', '')
+                curr_away = jc.get('eu_curr_away', '')
 
         if not init_home and analysis_data:
             instant = analysis_data.get('instant_eu_odds', {})
