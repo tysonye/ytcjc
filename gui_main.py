@@ -94,9 +94,9 @@ class MatchScraper:
             
             try:
                 match_id = fields[4] if len(fields) > 4 else ""
-                
-                if not match_id or not re.match(r'周[五六日]\d{3}', match_id):
-                    continue
+            
+            if not match_id or not re.match(r'周[一二三四五六日]\d{3}', match_id):
+                continue
                 
                 league_id = fields[5] if len(fields) > 5 else ""
                 league_name = league_info.get(league_id, "")
