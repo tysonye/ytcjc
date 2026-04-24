@@ -814,39 +814,57 @@ class MatchDisplayApp:
     
     def fetch_web_analysis(self, match: Dict) -> str:
         """从网页获取详细分析数据"""
-        return self.parse_web_content("", match)
+        match_unique_id = match.get('match_unique_id', '')
+        if not match_unique_id:
+            return self.parse_web_content("", match, {})
+        
+        url = f"https://zq.titan007.com/analysis/{match_unique_id}.htm"
+        print(f"正在获取分析页面: {url}")
+        
+        try:
+            response = self.scraper.session.get(url, timeout=10)
+            response.encoding = 'utf-8'
+            
+            if response.status_code == 200:
+                html = response.text
+                analysis_data = self.scraper.parse_analysis_data(html)
+                return self.parse_web_content(html, match, analysis_data)
+        except Exception as e:
+            print(f"获取分析页面失败: {e}")
+        
+        return self.parse_web_content("", match, {})
     
-    def parse_web_content(self, html: str, match: Dict) -> str:
-        """解析网页内容 - 专业赔率显示格式"""
+    def parse_web_content(self, html: str, match: Dict, analysis_data: Dict) -> str:
+        """解析网页内容 - 专业完整的赔率显示"""
         lines = []
         lines.append("")
         
         # 标题
         lines.append("")
-        lines.append(f"        ┌──────────────────────────────────────────┐")
-        lines.append(f"        │           比赛详情: {match.get('match_id', '')}           │")
-        lines.append(f"        └──────────────────────────────────────────┘")
+        lines.append(f"        ┌─────────────────────────────────────────────────────────────┐")
+        lines.append(f"        │                    比赛详情: {match.get('match_id', '')}                      │")
+        lines.append(f"        └─────────────────────────────────────────────────────────────┘")
         lines.append("")
         
         # 对阵双方
         home_team = match.get('home_team', '')
         away_team = match.get('away_team', '')
-        lines.append(f"           {home_team}  VS  {away_team}")
+        lines.append(f"                       {home_team}  VS  {away_team}")
         lines.append("")
         
         # 基本信息
         lines.append("")
-        lines.append(f"     ┌──────────────────────────────────────────────────┐")
-        lines.append(f"     │          基本信息                                 │")
-        lines.append(f"     ├──────────────────────────────────────────────────┤")
-        lines.append(f"     │ 联赛: {match.get('league', ''):<41}│")
-        lines.append(f"     │ 状态: {match.get('status', ''):<41}│")
-        lines.append(f"     │ 时间: {match.get('match_time', ''):<41}│")
+        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
+        lines.append(f"     │                        基本信息                                   │")
+        lines.append(f"     ├─────────────────────────────────────────────────────────────────┤")
+        lines.append(f"     │ 联赛: {match.get('league', ''):<51} │")
+        lines.append(f"     │ 状态: {match.get('status', ''):<51} │")
+        lines.append(f"     │ 时间: {match.get('match_time', ''):<51} │")
         
         score = match.get('score', '')
         if score:
-            lines.append(f"     │ 比分: {score:<41}│")
-        lines.append(f"     └──────────────────────────────────────────────────┘")
+            lines.append(f"     │ 比分: {score:<51} │")
+        lines.append(f"     └─────────────────────────────────────────────────────────────────┘")
         lines.append("")
         
         # 胜平负赔率表格
@@ -857,14 +875,14 @@ class MatchDisplayApp:
         curr_draw = match.get('curr_draw_odd', '')
         curr_away = match.get('curr_away_odd', '')
         
-        lines.append(f"     ┌──────────────────────────────────────────────────┐")
-        lines.append(f"     │          胜平负赔率                               │")
-        lines.append(f"     ├───────────────┬───────────────┬──────────────────┤")
-        lines.append(f"     │     类型      │     主胜      │      平局       │      客胜       │")
-        lines.append(f"     ├───────────────┼───────────────┼──────────────────┤")
-        lines.append(f"     │     初盘      │  {init_home:<12} │  {init_draw:<12}   │  {init_away:<12}    │")
-        lines.append(f"     │     即时      │  {curr_home:<12} │  {curr_draw:<12}   │  {curr_away:<12}    │")
-        lines.append(f"     └───────────────┴───────────────┴──────────────────┘")
+        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
+        lines.append(f"     │                       胜平负赔率                                  │")
+        lines.append(f"     ├───────────┬───────────────┬───────────────┬──────────────────────┤")
+        lines.append(f"     │   类型    │     主胜      │     平局      │     客胜             │")
+        lines.append(f"     ├───────────┼───────────────┼───────────────┼──────────────────────┤")
+        lines.append(f"     │   初盘    │  {init_home:<12} │  {init_draw:<12} │  {init_away:<16}       │")
+        lines.append(f"     │   即时    │  {curr_home:<12} │  {curr_draw:<12} │  {curr_away:<16}       │")
+        lines.append(f"     └───────────┴───────────────┴───────────────┴──────────────────────┘")
         lines.append("")
         
         # 让球盘口
@@ -882,21 +900,65 @@ class MatchDisplayApp:
             except:
                 handicap_text = handicap
         
-        lines.append(f"     ┌──────────────────────────────────────────────────┐")
-        lines.append(f"     │          让球盘口                                 │")
-        lines.append(f"     ├──────────────────────────────────────────────────┤")
-        lines.append(f"     │ 盘口: {handicap:<39} │")
+        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
+        lines.append(f"     │                       让球盘口                                   │")
+        lines.append(f"     ├─────────────────────────────────────────────────────────────────┤")
+        lines.append(f"     │ 盘口: {handicap:<49} │")
         if handicap_text:
-            lines.append(f"     │ 说明: {handicap_text:<39} │")
-        lines.append(f"     └──────────────────────────────────────────────────┘")
+            lines.append(f"     │ 说明: {handicap_text:<49} │")
+        lines.append(f"     └─────────────────────────────────────────────────────────────────┘")
         lines.append("")
         
+        # 欧洲指数详细表格
+        european_odds = analysis_data.get('european_odds', [])
+        if european_odds:
+            lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
+            lines.append(f"     │                      欧洲指数公司赔率                              │")
+            lines.append(f"     ├────────────┬───────────┬──────────┬───────────┬──────────┬────────┤")
+            lines.append(f"     │   公司     │   主胜初  │  平初   │  客胜初   │  即时主 │即时平  │")
+            lines.append(f"     ├────────────┼───────────┼──────────┼───────────┼──────────┼────────┤")
+            
+            for i, odd in enumerate(european_odds[:8]):
+                company = odd.get('company', '')
+                home_init = odd.get('home_init', '')
+                draw_init = odd.get('draw_init', '')
+                away_init = odd.get('away_init', '')
+                home_curr = odd.get('home_curr', '')
+                draw_curr = odd.get('draw_curr', '')
+                
+                lines.append(f"     │ {company:<10} │ {home_init:<9} │ {draw_init:<8} │ {away_init:<9} │ {home_curr:<8} │ {draw_curr:<8} │")
+            
+            lines.append(f"     └────────────┴───────────┴──────────┴───────────┴──────────┴────────┘")
+            lines.append("")
+        
+        # 亚洲指数详细表格
+        asian_odds = analysis_data.get('asian_odds', [])
+        if asian_odds:
+            lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
+            lines.append(f"     │                      亚洲盘口赔率                                  │")
+            lines.append(f"     ├────────────┬───────────┬──────────┬───────────┬──────────┬────────┤")
+            lines.append(f"     │   公司     │   主胜初  │  让球初  │  客胜初   │  即时主 │即让球  │")
+            lines.append(f"     ├────────────┼───────────┼──────────┼───────────┼──────────┼────────┤")
+            
+            for i, odd in enumerate(asian_odds[:8]):
+                company = odd.get('company', '')
+                home_init = odd.get('home_init', '')
+                handicap_init = odd.get('handicap_init', '')
+                away_init = odd.get('away_init', '')
+                home_curr = odd.get('home_curr', '')
+                handicap_curr = odd.get('handicap_curr', '')
+                
+                lines.append(f"     │ {company:<10} │ {home_init:<9} │ {handicap_init:<8} │ {away_init:<9} │ {home_curr:<8} │ {handicap_curr:<8} │")
+            
+            lines.append(f"     └────────────┴───────────┴──────────┴───────────┴──────────┴────────┘")
+            lines.append("")
+        
         # 其他数据
-        lines.append(f"     ┌──────────────────────────────────────────────────┐")
-        lines.append(f"     │          其他信息                                 │")
-        lines.append(f"     ├──────────────────────────────────────────────────┤")
-        lines.append(f"     │ 比赛ID: {match.get('match_unique_id', ''):<34} │")
-        lines.append(f"     └──────────────────────────────────────────────────┘")
+        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
+        lines.append(f"     │                        其他信息                                   │")
+        lines.append(f"     ├─────────────────────────────────────────────────────────────────┤")
+        lines.append(f"     │ 比赛唯一ID: {match.get('match_unique_id', ''):<44} │")
+        lines.append(f"     └─────────────────────────────────────────────────────────────────┘")
         lines.append("")
         lines.append("")
         
@@ -954,20 +1016,20 @@ class MatchDisplayApp:
                 anchor = 'w'
                 
                 # 根据内容类型
-                if 'VS' in line or 'VS' in line:
+                if 'VS' in line:
                     fg_color = '#ffd700'
                     font_weight = 'bold'
                     font_size = max(14, int(16*s))
                     anchor = 'center'
                 elif '┌' in line or '└' in line or '├' in line or '┤' in line or '│' in line or '─' in line:
                     fg_color = '#00ffff'
-                elif '基本信息' in line or '胜平负赔率' in line or '让球盘口' in line or '其他信息' in line:
+                elif '基本信息' in line or '胜平负赔率' in line or '让球盘口' in line or '其他信息' in line or '欧洲指数' in line or '亚洲盘口' in line:
                     fg_color = '#00ff88'
                     font_weight = 'bold'
                     font_size = max(12, int(14*s))
                 elif '联赛:' in line or '状态:' in line or '时间:' in line or '比分:' in line or '盘口:' in line or '说明:' in line or '比赛ID:' in line:
                     fg_color = '#00ffff'
-                elif '类型' in line or '主胜' in line or '平局' in line or '客胜' in line:
+                elif '类型' in line or '主胜' in line or '平局' in line or '客胜' in line or '公司' in line or '让球' in line:
                     fg_color = '#ff6b6b'
                     font_weight = 'bold'
                 elif '初盘' in line or '即时' in line:
@@ -984,7 +1046,7 @@ class MatchDisplayApp:
                     justify=tk.LEFT,
                     anchor=anchor
                 )
-                line_label.pack(fill=tk.X, padx=int(15*s), pady=int(2*s))
+                line_label.pack(fill=tk.X, padx=int(10*s), pady=int(1*s))
     
     def show_match_detail(self, match: Dict):
         s = self.scale
