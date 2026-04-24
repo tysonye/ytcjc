@@ -348,8 +348,11 @@ class MatchScraper:
             'away_recent': [],
             'half_full_stats': {'home': {}, 'away': {}},
             'goal_stats': {'home': {}, 'away': {}},
-            'match_info': {}
+            'match_info': {},
+            'instant_eu_odds': {}
         }
+
+        self._parse_vs_eodds(html, analysis_data)
 
         # 解析联赛积分排名
         self._parse_league_standings(soup, analysis_data)
@@ -373,6 +376,32 @@ class MatchScraper:
         self._parse_trend_data(soup, analysis_data)
 
         return analysis_data
+
+    def _parse_vs_eodds(self, html: str, analysis_data: Dict):
+        """从分析页面提取Vs_eOdds即时欧指数据"""
+        try:
+            import json
+            e_match = re.search(r'var\s+Vs_eOdds\s*=\s*(\[.+?\]);', html, re.DOTALL)
+            if not e_match:
+                return
+            e_odds = json.loads(e_match.group(1).replace("'", '"'))
+            company_names = {3: 'Crow*', 1: '澳*', 8: '36*', 12: '易胜*', 4: '立*', 18: '12*', 115: '威廉希*', 281: '36*', 80: '澳*'}
+            priority = [3, 1, 8, 12, 4, 18, 115, 281, 80]
+            for cid in priority:
+                for item in e_odds:
+                    if len(item) >= 8 and item[1] == cid:
+                        analysis_data['instant_eu_odds'] = {
+                            'company': company_names.get(cid, str(cid)),
+                            'init_home': item[2],
+                            'init_draw': item[3],
+                            'init_away': item[4],
+                            'curr_home': item[5],
+                            'curr_draw': item[6],
+                            'curr_away': item[7],
+                        }
+                        return
+        except Exception as e:
+            print(f"解析Vs_eOdds失败: {e}")
 
     def _parse_league_standings(self, soup, analysis_data):
         """解析联赛积分排名"""
@@ -1338,19 +1367,18 @@ class MatchDisplayApp:
         curr_home = ''
         curr_draw = ''
         curr_away = ''
-        odds_trend = analysis_data.get('odds_trend', []) if analysis_data else []
-        for item in odds_trend:
-            if item.get('company_id') == '3' or item.get('company') == 'Crow*':
-                init_home = item.get('eu_init_home', '')
-                init_draw = item.get('eu_init_draw', '')
-                init_away = item.get('eu_init_away', '')
-                curr_home = item.get('eu_curr_home', '')
-                curr_draw = item.get('eu_curr_draw', '')
-                curr_away = item.get('eu_curr_away', '')
-                break
+        instant = analysis_data.get('instant_eu_odds', {}) if analysis_data else {}
+        if instant:
+            init_home = instant.get('init_home', '')
+            init_draw = instant.get('init_draw', '')
+            init_away = instant.get('init_away', '')
+            curr_home = instant.get('curr_home', '')
+            curr_draw = instant.get('curr_draw', '')
+            curr_away = instant.get('curr_away', '')
         if not init_home:
+            odds_trend = analysis_data.get('odds_trend', []) if analysis_data else []
             for item in odds_trend:
-                if item.get('eu_init_home'):
+                if item.get('company_id') == '3' or item.get('company') == 'Crow*':
                     init_home = item.get('eu_init_home', '')
                     init_draw = item.get('eu_init_draw', '')
                     init_away = item.get('eu_init_away', '')
@@ -1358,6 +1386,16 @@ class MatchDisplayApp:
                     curr_draw = item.get('eu_curr_draw', '')
                     curr_away = item.get('eu_curr_away', '')
                     break
+            if not init_home:
+                for item in odds_trend:
+                    if item.get('eu_init_home'):
+                        init_home = item.get('eu_init_home', '')
+                        init_draw = item.get('eu_init_draw', '')
+                        init_away = item.get('eu_init_away', '')
+                        curr_home = item.get('eu_curr_home', '')
+                        curr_draw = item.get('eu_curr_draw', '')
+                        curr_away = item.get('eu_curr_away', '')
+                        break
 
         lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
         lines.append(f"     │                       胜平负赔率                                  │")

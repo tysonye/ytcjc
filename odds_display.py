@@ -625,15 +625,27 @@ class OddsTableDisplay:
                     fg='#cc0000', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
 
     def create_european_odds_table(self, match: Dict, analysis_data: Dict = None):
-        """创建简版欧洲指数表格 - 优先从odds_trend获取数据"""
+        """创建简版欧洲指数表格 - 优先从Vs_eOdds获取数据"""
         init_home = ''
         init_draw = ''
         init_away = ''
         curr_home = ''
         curr_draw = ''
         curr_away = ''
+        company = ''
 
         if analysis_data:
+            instant = analysis_data.get('instant_eu_odds', {})
+            if instant:
+                company = instant.get('company', '')
+                init_home = instant.get('init_home', '')
+                init_draw = instant.get('init_draw', '')
+                init_away = instant.get('init_away', '')
+                curr_home = instant.get('curr_home', '')
+                curr_draw = instant.get('curr_draw', '')
+                curr_away = instant.get('curr_away', '')
+
+        if not init_home and analysis_data:
             odds_trend = analysis_data.get('odds_trend', [])
             for item in odds_trend:
                 if item.get('company_id') == '3' or item.get('company') == 'Crow*':
@@ -643,6 +655,7 @@ class OddsTableDisplay:
                     curr_home = item.get('eu_curr_home', '')
                     curr_draw = item.get('eu_curr_draw', '')
                     curr_away = item.get('eu_curr_away', '')
+                    company = item.get('company', '')
                     break
             if not init_home:
                 for item in odds_trend:
@@ -654,20 +667,14 @@ class OddsTableDisplay:
                         curr_home = item.get('eu_curr_home', '')
                         curr_draw = item.get('eu_curr_draw', '')
                         curr_away = item.get('eu_curr_away', '')
+                        company = item.get('company', '')
                         break
-
-        if not init_home:
-            init_home = match.get('init_home_odd', '')
-            init_draw = match.get('init_draw_odd', '')
-            init_away = match.get('init_away_odd', '')
-            curr_home = match.get('curr_home_odd', '')
-            curr_draw = match.get('curr_draw_odd', '')
-            curr_away = match.get('curr_away_odd', '')
 
         has_data = any([init_home, init_draw, init_away, curr_home, curr_draw, curr_away])
         if not has_data:
             return
 
+        title = f'即时赔率 ({company})' if company else '即时赔率'
         headers = ['', '主胜', '平局', '客胜']
         col_widths = [10, 12, 12, 12]
         rows = [
@@ -675,7 +682,7 @@ class OddsTableDisplay:
             ['即时', curr_home or '-', curr_draw or '-', curr_away or '-']
         ]
 
-        self.create_odds_table_web_style('即时赔率', headers, rows, col_widths)
+        self.create_odds_table_web_style(title, headers, rows, col_widths)
 
     def create_asian_handicap_table(self, match: Dict):
         """创建简版亚洲盘口表格"""
