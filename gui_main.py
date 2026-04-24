@@ -787,34 +787,8 @@ class MatchDisplayApp:
     
     def fetch_web_analysis(self, match: Dict) -> str:
         """从网页获取详细分析数据"""
-        # 从 raw_data 中获取比赛 ID
-        raw_data = match.get('raw_data', [])
-        if not raw_data or len(raw_data) < 1:
-            return "无法获取比赛 ID"
-        
-        # 尝试从 raw_data 中提取数字 ID
-        match_id = None
-        for field in raw_data:
-            if field.isdigit() and len(field) >= 6:
-                match_id = field
-                break
-        
-        if not match_id:
-            # 如果没有数字 ID，使用 match_id
-            return "该比赛暂无详细网页数据"
-        
-        url = f"http://zq.titan007.com/analysis/{match_id}.htm"
-        
-        try:
-            response = self.scraper.session.get(url, timeout=10)
-            response.encoding = 'utf-8'
-            
-            if response.status_code == 200:
-                return self.parse_web_content(response.text, match)
-            else:
-                return f"无法获取网页数据 (状态码：{response.status_code})"
-        except Exception as e:
-            return f"获取数据失败：{e}"
+        # 简化显示，不访问网站
+        return self.parse_web_content("", match)
     
     def parse_web_content(self, html: str, match: Dict) -> str:
         """解析网页内容 - 简化显示"""
@@ -838,8 +812,6 @@ class MatchDisplayApp:
             content.append(f"盘口: {handicap}")
         
         content.append("\n" + "=" * 80)
-        content.append("\n注: 该网站有反爬机制，无法获取详细分析数据")
-        content.append("=" * 80)
         
         return "\n".join(content)
     
