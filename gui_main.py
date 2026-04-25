@@ -474,8 +474,9 @@ class MatchScraper:
 
         self._parse_vs_eodds(html, analysis_data)
 
-        # 解析联赛积分排名
-        self._parse_league_standings(soup, analysis_data)
+        self._parse_venue_weather(html, analysis_data)
+
+        self._parse_standings_js(soup, html, analysis_data)
 
         # 解析对赛往绩
         self._parse_h2h_records(soup, analysis_data)
@@ -523,45 +524,155 @@ class MatchScraper:
         except Exception as e:
             print(f"解析Vs_eOdds失败: {e}")
 
-    def _parse_league_standings(self, soup, analysis_data):
-        """解析联赛积分排名"""
+    def _parse_venue_weather(self, html: str, analysis_data: Dict):
         try:
-            # 查找包含积分排名的表格
-            tables = soup.find_all('table')
-            for table in tables:
-                text = table.get_text()
-                if '排名' in text and '赛' in text and '胜' in text:
-                    rows = table.find_all('tr')
-                    if len(rows) >= 3:
-                        current_team = None
-                        for row in rows:
-                            cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 10:
-                                row_text = [c.get_text(strip=True) for c in cells]
-                                # 检测是否是球队名称行
-                                if len(row_text) == 1 and row_text[0]:
-                                    current_team = row_text[0]
-                                elif current_team and row_text[0].isdigit():
-                                    # 数据行
-                                    data = {
-                                        'rank': row_text[0],
-                                        'team': current_team,
-                                        'played': row_text[1] if len(row_text) > 1 else '',
-                                        'won': row_text[2] if len(row_text) > 2 else '',
-                                        'drawn': row_text[3] if len(row_text) > 3 else '',
-                                        'lost': row_text[4] if len(row_text) > 4 else '',
-                                        'gf': row_text[5] if len(row_text) > 5 else '',
-                                        'ga': row_text[6] if len(row_text) > 6 else '',
-                                        'gd': row_text[7] if len(row_text) > 7 else '',
-                                        'points': row_text[8] if len(row_text) > 8 else '',
-                                        'win_rate': row_text[9] if len(row_text) > 9 else ''
-                                    }
-                                    if 'home' not in analysis_data['league_standings'] or not analysis_data['league_standings']['home']:
-                                        analysis_data['league_standings']['home'].append(data)
-                                    else:
-                                        analysis_data['league_standings']['away'].append(data)
+            place_match = re.search(r"class=['\"]place['\"][^>]*>(.*?)</a>", html)
+            if place_match:
+                place_text = place_match.group(1)
+                venue = re.sub(r'^.*?[：:]', '', place_text).strip()
+                if venue:
+                    analysis_data['venue'] = venue
+
+            full_row = re.search(r"class=['\"]place['\"].*?</div>", html, re.DOTALL)
+            if full_row:
+                row_text = re.sub(r'<[^>]+>', '', full_row.group(0))
+                row_text = row_text.replace('&nbsp;', ' ')
+
+                weather_match = re.search(r'天氣[：:]\s*(\S+)', row_text)
+                if weather_match:
+                    analysis_data['weather'] = weather_match.group(1)
+
+                temp_match = re.search(r'溫度[：:]\s*(\S+)', row_text)
+                if temp_match:
+                    analysis_data['temperature'] = temp_match.group(1)
+
+            img_matches = re.findall(r'<img[^>]*src="([^"]*image/team[^"]*)"[^>]*alt="([^"]*)"', html)
+            if len(img_matches) >= 2:
+                analysis_data['home_logo'] = 'https:' + img_matches[0][0] if img_matches[0][0].startswith('//') else img_matches[0][0]
+                analysis_data['away_logo'] = 'https:' + img_matches[1][0] if img_matches[1][0].startswith('//') else img_matches[1][0]
+
+            lname_match = re.search(r"class=['\"]LName['\"][^>]*>(.*?)</a>", html)
+            if lname_match:
+                analysis_data['league_round'] = lname_match.group(1).strip()
+
+            date_row = re.search(r"class=['\"]LName['\"].*?</div>", html, re.DOTALL)
+            if date_row:
+                date_text = re.sub(r'<[^>]+>', '', date_row.group(0))
+                date_text = date_text.replace('&nbsp;', ' ').strip()
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(\d{1,2}:\d{2})\s*(\S+)', date_text)
+                if date_match:
+                    analysis_data['match_date'] = date_match.group(1)
+                    analysis_data['match_day'] = date_match.group(3)
         except Exception as e:
-            print(f"解析联赛排名失败: {e}")
+            print(f"解析场地天气失败: {e}")
+
+    def _parse_standings_js(self, soup, html: str, analysis_data: Dict):
+        try:
+            porlet_5 = soup.find('div', id='porlet_5')
+            if porlet_5:
+                standings = self._parse_porlet5_tables(porlet_5)
+                if standings:
+                    analysis_data['standings_data'] = standings
+                    return
+            standings = self._parse_standings_js_vars(html)
+            if standings:
+                analysis_data['standings_data'] = standings
+        except Exception as e:
+            print(f"解析赛前积分榜失败: {e}")
+
+    def _parse_porlet5_tables(self, porlet_5) -> Dict:
+        try:
+            result = {'home_team': None, 'away_team': None}
+            outer_table = porlet_5.find('table')
+            if not outer_table:
+                return None
+            tr = outer_table.find('tr')
+            if not tr:
+                return None
+            tds = tr.find_all('td', recursive=False)
+            if len(tds) < 2:
+                return None
+            for idx, td in enumerate(tds):
+                team_key = 'home_team' if idx == 0 else 'away_team'
+                nested_table = td.find('table')
+                if not nested_table:
+                    continue
+                team_data = self._parse_team_standings_table(nested_table)
+                if team_data:
+                    result[team_key] = team_data
+            if result['home_team'] or result['away_team']:
+                return result
+            return None
+        except Exception as e:
+            print(f"解析porlet_5表格失败: {e}")
+            return None
+
+    def _parse_team_standings_table(self, table) -> Dict:
+        try:
+            rows = table.find_all('tr')
+            if len(rows) < 3:
+                return None
+            first_row = rows[0]
+            name_text = first_row.get_text(strip=True)
+            name_match = re.search(r'\]([^\]]+)$', name_text)
+            team_name = name_match.group(1).strip() if name_match else name_text
+            result = {'name': team_name}
+            type_map = {'總': 'total', '总': 'total', '主': 'home', '客': 'away'}
+            for row in rows[2:]:
+                cells = row.find_all(['td'])
+                if len(cells) < 10:
+                    continue
+                cell_texts = [c.get_text(strip=True) for c in cells]
+                row_type = cell_texts[0]
+                mapped_type = type_map.get(row_type)
+                if not mapped_type:
+                    continue
+                result[mapped_type] = {
+                    'played': cell_texts[1] if len(cell_texts) > 1 else '',
+                    'won': cell_texts[2] if len(cell_texts) > 2 else '',
+                    'drawn': cell_texts[3] if len(cell_texts) > 3 else '',
+                    'lost': cell_texts[4] if len(cell_texts) > 4 else '',
+                    'gf': cell_texts[5] if len(cell_texts) > 5 else '',
+                    'ga': cell_texts[6] if len(cell_texts) > 6 else '',
+                    'gd': cell_texts[7] if len(cell_texts) > 7 else '',
+                    'points': cell_texts[8] if len(cell_texts) > 8 else '',
+                    'rank': cell_texts[9] if len(cell_texts) > 9 else '',
+                    'win_rate': cell_texts[10] if len(cell_texts) > 10 else '',
+                }
+            return result if len(result) > 1 else None
+        except Exception as e:
+            print(f"解析球队积分表失败: {e}")
+            return None
+
+    def _parse_standings_js_vars(self, html: str) -> Dict:
+        try:
+            result = {'total': [], 'home': [], 'away': [], 'format': 'league'}
+            for var_name, key in [('totalScoreStr', 'total'), ('homeScoreStr', 'home'), ('guestScoreStr', 'away')]:
+                m = re.search(rf'var\s+{var_name}\s*=\s*(\[.+?\]);', html, re.DOTALL)
+                if not m:
+                    continue
+                try:
+                    data = json.loads(m.group(1))
+                    for item in data:
+                        if key == 'total' and len(item) >= 5:
+                            result[key].append({
+                                'rank': str(item[1]),
+                                'team': str(item[3]),
+                                'points': str(item[4]),
+                            })
+                        elif len(item) >= 4:
+                            result[key].append({
+                                'rank': str(item[0]),
+                                'team': str(item[2]),
+                                'points': str(item[3]),
+                            })
+                except Exception as e:
+                    print(f"解析{var_name}失败: {e}")
+            has_data = any(result[k] for k in ['total', 'home', 'away'])
+            return result if has_data else None
+        except Exception as e:
+            print(f"解析积分JS变量失败: {e}")
+            return None
 
     def _parse_h2h_records(self, soup, analysis_data):
         """解析对赛往绩"""
@@ -983,7 +1094,7 @@ class MatchDisplayApp:
         main_paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg='#1a1a2e')
         main_paned.pack(fill=tk.BOTH, expand=True, padx=pad, pady=pad)
 
-        left_width = int(250 * self.scale)
+        left_width = int(300 * self.scale)
         left_frame = tk.Frame(main_paned, bg='#16213e')
         main_paned.add(left_frame, width=left_width)
 
@@ -1229,6 +1340,9 @@ class MatchDisplayApp:
 
         # 过滤并显示
         self.filter_matches()
+
+        # 刷新当前显示的盘口详情
+        self._refresh_current_detail()
 
         # 自动刷新：数据加载完成后，安排下一次自动刷新
         self.start_auto_refresh()
@@ -1673,7 +1787,21 @@ class MatchDisplayApp:
         odds_display = OddsTableDisplay(scrollable_frame, s)
         odds_display.create_full_display(match, analysis_data)
 
+    def _refresh_current_detail(self):
+        current_id = getattr(self, '_current_detail_match_id', '')
+        if not current_id:
+            return
+        current_match = None
+        for m in self.matches:
+            if m.get('match_unique_id') == current_id:
+                current_match = m
+                break
+        if not current_match:
+            return
+        self.show_match_detail(current_match)
+
     def show_match_detail(self, match: Dict):
+        self._current_detail_match_id = match.get('match_unique_id', '')
         s = self.scale
         # 清除详情区域
         for widget in self.detail_frame.winfo_children():
@@ -1688,16 +1816,17 @@ class MatchDisplayApp:
         # 异步加载网页分析数据
         def load_detail():
             analysis_data = self.scraper.fetch_match_analysis(match)
-            # 使用after确保在主线程更新UI
+            if analysis_data:
+                for key in ['venue', 'weather', 'temperature', 'league_round', 'match_date', 'match_day', 'home_logo', 'away_logo', 'standings_data']:
+                    if key in analysis_data and key not in match:
+                        match[key] = analysis_data[key]
             self.root.after(0, lambda: self._safe_display_web_analysis(match, analysis_data, loading_label))
 
         thread = threading.Thread(target=load_detail, daemon=True)
         thread.start()
 
     def _safe_display_web_analysis(self, match: Dict, analysis_data: Dict, loading_label):
-        """安全地显示网页分析，处理widget可能已被销毁的情况"""
         try:
-            # 检查主窗口是否还存在
             if not self.root.winfo_exists():
                 return
             self.display_web_analysis(match, analysis_data, loading_label)

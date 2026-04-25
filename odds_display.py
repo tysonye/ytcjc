@@ -2,6 +2,191 @@
 import tkinter as tk
 from tkinter import ttk
 from typing import Dict, List
+from io import BytesIO
+
+
+class StandingsTooltip:
+    def __init__(self, widget, standings_data, scale, home_team='', away_team=''):
+        self.widget = widget
+        self.standings_data = standings_data
+        self.scale = scale
+        self.home_team = home_team
+        self.away_team = away_team
+        self.tooltip_window = None
+        self.hide_after_id = None
+        widget.bind('<Enter>', self.on_enter)
+        widget.bind('<Leave>', self.on_leave)
+
+    def on_enter(self, event=None):
+        if self.hide_after_id:
+            try:
+                self.widget.after_cancel(self.hide_after_id)
+            except:
+                pass
+            self.hide_after_id = None
+        self.show_tooltip()
+
+    def on_leave(self, event=None):
+        self.hide_after_id = self.widget.after(300, self.hide_tooltip)
+
+    def show_tooltip(self):
+        if self.tooltip_window:
+            return
+        if not self.standings_data:
+            return
+        has_team_data = self.standings_data.get('home_team') or self.standings_data.get('away_team')
+        has_league_data = any(self.standings_data.get(k) for k in ['total', 'home', 'away'])
+        if not has_team_data and not has_league_data:
+            return
+
+        s = self.scale
+        x = self.widget.winfo_rootx() + 10
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+
+        tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        try:
+            tw.attributes('-topmost', True)
+        except:
+            pass
+
+        tw.bind('<Enter>', self.on_tooltip_enter)
+        tw.bind('<Leave>', self.on_tooltip_leave)
+
+        outer = tk.Frame(tw, bg='#888888', bd=1)
+        outer.pack()
+
+        main_frame = tk.Frame(outer, bg='#ffffff')
+        main_frame.pack(padx=1, pady=1)
+
+        title_frame = tk.Frame(main_frame, bg='#0066cc')
+        title_frame.pack(fill=tk.X)
+        tk.Label(title_frame, text=' 赛前积分榜 ', font=('Microsoft YaHei', max(10, int(12*s)), 'bold'),
+                fg='#ffffff', bg='#0066cc', padx=10, pady=3).pack(side=tk.LEFT)
+
+        if has_team_data:
+            self._show_team_stats(main_frame, s)
+        elif has_league_data:
+            self._show_league_rankings(main_frame, s)
+
+        self.tooltip_window = tw
+
+    def _show_team_stats(self, parent, s):
+        for team_key, color in [('home_team', '#cc0000'), ('away_team', '#0066cc')]:
+            team_data = self.standings_data.get(team_key)
+            if not team_data:
+                continue
+
+            team_name = team_data.get('name', '')
+
+            header_frame = tk.Frame(parent, bg=color)
+            header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+            tk.Label(header_frame, text=f' {team_name} ', font=('Microsoft YaHei', max(10, int(12*s)), 'bold'),
+                    fg='#ffffff', bg=color, padx=8, pady=3).pack(side=tk.LEFT)
+
+            table_frame = tk.Frame(parent, bg='#ffffff')
+            table_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+            headers = ['', '赛', '胜', '平', '负', '得', '失', '净', '积分', '排名', '胜率']
+            col_widths = [4, 3, 3, 3, 3, 3, 3, 4, 4, 3, 5]
+
+            char_width = max(8, int(10 * s))
+            font = ('Microsoft YaHei', char_width)
+            font_bold = ('Microsoft YaHei', char_width, 'bold')
+
+            for i, hdr in enumerate(headers):
+                tk.Label(table_frame, text=hdr, font=font_bold, fg='#333333', bg='#e8e8e8',
+                        width=col_widths[i], relief='solid', bd=1, padx=1, pady=1).grid(row=0, column=i, sticky='nsew')
+
+            row_idx = 1
+            for stat_type, stat_label in [('total', '总'), ('home', '主'), ('away', '客')]:
+                stats = team_data.get(stat_type)
+                if not stats:
+                    continue
+
+                bg = '#ffffff' if row_idx % 2 == 1 else '#f9f9f9'
+                values = [stat_label, stats.get('played', ''), stats.get('won', ''), stats.get('drawn', ''),
+                         stats.get('lost', ''), stats.get('gf', ''), stats.get('ga', ''), stats.get('gd', ''),
+                         stats.get('points', ''), stats.get('rank', ''), stats.get('win_rate', '')]
+
+                for col_idx, val in enumerate(values):
+                    fg = '#cc0000' if col_idx == 8 and val else '#333333'
+                    f = font_bold if col_idx in [0, 8] else font
+                    tk.Label(table_frame, text=str(val), font=f, fg=fg, bg=bg,
+                            width=col_widths[col_idx], relief='solid', bd=1, padx=1, pady=1
+                            ).grid(row=row_idx, column=col_idx, sticky='nsew')
+
+                row_idx += 1
+
+    def _show_league_rankings(self, parent, s):
+        notebook = ttk.Notebook(parent)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        for tab_name, key in [('总', 'total'), ('主', 'home'), ('客', 'away')]:
+            data = self.standings_data.get(key, [])
+            if not data:
+                continue
+            tab_frame = tk.Frame(notebook, bg='#ffffff')
+            notebook.add(tab_frame, text=tab_name)
+            self._create_standings_table(tab_frame, data, s)
+
+    def _create_standings_table(self, parent, data, s):
+        headers = ['排名', '球队', '积分']
+        col_widths = [4, 10, 5]
+
+        char_width = max(8, int(10 * s))
+        font = ('Microsoft YaHei', char_width)
+        font_bold = ('Microsoft YaHei', char_width, 'bold')
+
+        for i, hdr in enumerate(headers):
+            tk.Label(parent, text=hdr, font=font_bold, fg='#333333', bg='#e8e8e8',
+                    width=col_widths[i], relief='solid', bd=1, padx=1, pady=1).grid(row=0, column=i, sticky='nsew')
+
+        for row_idx, item in enumerate(data):
+            bg = '#ffffff' if row_idx % 2 == 0 else '#f9f9f9'
+            team = item.get('team', '')
+            is_home = (team == self.home_team)
+            is_away = (team == self.away_team)
+            if is_home:
+                bg = '#ffe0e0'
+            elif is_away:
+                bg = '#e0e0ff'
+
+            values = [item.get('rank', ''), item.get('team', ''), item.get('points', '')]
+            for col_idx, val in enumerate(values):
+                fg = '#cc0000' if is_home else '#0066cc' if is_away else '#333333'
+                f = font_bold if (is_home or is_away) else font
+                tk.Label(parent, text=str(val), font=f, fg=fg, bg=bg,
+                        width=col_widths[col_idx], relief='solid', bd=1, padx=1, pady=1
+                        ).grid(row=row_idx+1, column=col_idx, sticky='nsew')
+
+    def on_tooltip_enter(self, event=None):
+        if self.hide_after_id:
+            try:
+                self.widget.after_cancel(self.hide_after_id)
+            except:
+                pass
+            self.hide_after_id = None
+
+    def on_tooltip_leave(self, event=None):
+        self.hide_after_id = self.widget.after(300, self.hide_tooltip)
+
+    def hide_tooltip(self):
+        if self.tooltip_window:
+            try:
+                self.tooltip_window.destroy()
+            except:
+                pass
+            self.tooltip_window = None
+
+    def destroy(self):
+        self.hide_tooltip()
+        try:
+            self.widget.unbind('<Enter>')
+            self.widget.unbind('<Leave>')
+        except:
+            pass
 
 
 GoalCn = ["平手", "平手/半球", "半球", "半球/一球", "一球", "一球/球半",
@@ -262,15 +447,30 @@ class OddsTableDisplay:
         self.create_odds_table_web_style(title, headers, rows, col_widths)
 
     def create_odds_trend_table(self, odds_trend: List[Dict]):
-        """创建即时走势比较表格 - 1:1复制网站showOddsNew格式
-        列: 公司 | 欧指(主胜/和局/客胜) | 欧转亚盘(主队/亚让/客队/总水位) | 实际亚盘(主队/亚让/客队/总水位) | 进球数(大球/盘口/小球)
-        每公司2-3行: 初/终(仅Crow*比赛进行时)/即时或滚球
-        """
         if not odds_trend:
             return
 
         s = self.scale
-        self.create_section_title('即时走势')
+
+        title_frame = tk.Frame(self.parent, bg='#0066cc', bd=0)
+        title_frame.pack(fill=tk.X, pady=(15, 0), padx=5)
+
+        tk.Label(title_frame, text=' 即时走势', font=('Microsoft YaHei', max(11, int(13*s)), 'bold'),
+                fg='#ffffff', bg='#0066cc', padx=10, pady=5).pack(side=tk.LEFT)
+
+        company_vars = {}
+        for idx, item in enumerate(odds_trend):
+            company = item.get('company', '')
+            company_id = item.get('company_id', '')
+            if company:
+                var = tk.BooleanVar(value=(idx < 3))
+                company_vars[company_id] = var
+                cb = tk.Checkbutton(title_frame, text=company, variable=var,
+                                    font=('Microsoft YaHei', max(10, int(12*s))),
+                                    fg='#ffffff', bg='#0066cc', selectcolor='#0066cc',
+                                    activebackground='#0066cc', activeforeground='#ffdd44',
+                                    highlightthickness=0, bd=0, padx=5, pady=2)
+                cb.pack(side=tk.LEFT, padx=2)
 
         table_outer = tk.Frame(self.parent, bg=self.border_color, bd=1)
         table_outer.pack(fill=tk.X, padx=5, pady=(0, 10))
@@ -284,17 +484,26 @@ class OddsTableDisplay:
 
         def on_table_config(event):
             table_canvas.configure(scrollregion=table_canvas.bbox("all"))
+            inner_w = table_container.winfo_reqwidth()
+            inner_h = table_container.winfo_reqheight()
+            canvas_w = table_canvas.winfo_width()
+            table_canvas.configure(height=inner_h)
+            if inner_w <= canvas_w:
+                scrollbar.pack_forget()
+            else:
+                scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
             table_canvas.itemconfig(table_window, width=event.width)
 
         table_container.bind("<Configure>", on_table_config)
         table_canvas.bind("<Configure>", lambda e: table_canvas.itemconfig(table_window, width=e.width))
         table_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
 
-        char_width = max(7, int(9 * s))
+        char_width = max(11, int(13 * s))
         font = ('Microsoft YaHei', char_width)
         font_bold = ('Microsoft YaHei', char_width, 'bold')
 
-        header_bg = '#DAE9FA'
+        header_bg = '#FDEFD2'
+        sub_bg = '#ECF4FB'
         init_bg = '#ffffff'
         final_bg = '#F2F9FD'
         live_bg = '#fffff0'
@@ -310,15 +519,15 @@ class OddsTableDisplay:
         for col_idx, hdr in enumerate(headers_row1):
             if col_idx in spans_row1:
                 w = sum(col_widths[col_idx:col_idx + spans_row1[col_idx]])
-                lbl = tk.Label(table_container, text=hdr, font=font_bold, fg='#333333',
-                               bg=header_bg, width=w, relief='solid', bd=1, padx=1, pady=2)
+                lbl = tk.Label(table_container, text=hdr, font=font_bold, fg='#666666',
+                               bg=header_bg, width=w, height=1, relief='solid', bd=1, padx=2, pady=3)
                 lbl.grid(row=row, column=col_idx, columnspan=spans_row1[col_idx], sticky='nsew')
 
         row = 1
         for col_idx, hdr in enumerate(headers_row2):
             w = col_widths[col_idx]
-            lbl = tk.Label(table_container, text=hdr, font=font_bold, fg='#333333',
-                           bg=header_bg, width=w, relief='solid', bd=1, padx=1, pady=2)
+            lbl = tk.Label(table_container, text=hdr, font=font_bold, fg='#666666',
+                           bg=sub_bg, width=w, height=1, relief='solid', bd=1, padx=2, pady=3)
             lbl.grid(row=row, column=col_idx, sticky='nsew')
 
         def get_vals(d, prefix):
@@ -339,60 +548,79 @@ class OddsTableDisplay:
                 d.get(f'goal_{prefix}_small', ''),
             ]
 
-        row = 2
-        for item in odds_trend:
-            company = item.get('company', '')
-            company_id = item.get('company_id', '')
+        def build_table(*args):
+            for w in table_container.winfo_children():
+                if int(w.grid_info()['row']) >= 2:
+                    w.destroy()
 
-            has_live = any([
-                item.get('eu_live_home'), item.get('eua_live_home'),
-                item.get('real_live_home'), item.get('goal_live_big')
-            ])
-            has_final = (company_id == '3' and has_live)
+            filtered_trend = [item for item in odds_trend
+                              if company_vars.get(item.get('company_id', ''), tk.BooleanVar(value=True)).get()]
 
-            num_rows = 3 if has_final else 2
+            r = 2
+            for item in filtered_trend:
+                company = item.get('company', '')
+                company_id = item.get('company_id', '')
 
-            lbl = tk.Label(table_container, text=company, font=font_bold, fg='#0066cc',
-                           bg=init_bg, width=8, relief='solid', bd=1, padx=1, pady=2)
-            lbl.grid(row=row, column=0, rowspan=num_rows, sticky='nsew')
+                has_live = any([
+                    item.get('eu_live_home'), item.get('eua_live_home'),
+                    item.get('real_live_home'), item.get('goal_live_big')
+                ])
+                has_final = (company_id == '3' and has_live)
 
-            init_vals = get_vals(item, 'init')
-            curr_vals = get_vals(item, 'curr')
-            live_vals = get_vals(item, 'live')
+                num_rows = 3 if has_final else 2
 
-            def render_data_row(r, label, vals, bg_color, is_bold=False):
-                type_bg = final_bg if label in ('终', '即时', '滚球') else init_bg
-                type_fg = '#ff6600' if label in ('即时', '滚球') else '#333333'
-                lbl_type = tk.Label(table_container, text=label, font=font,
-                                    fg=type_fg, bg=type_bg, width=4, relief='solid', bd=1, padx=1, pady=2)
-                lbl_type.grid(row=r, column=1, sticky='nsew')
+                lbl = tk.Label(table_container, text=company, font=font_bold, fg='#0066cc',
+                               bg=init_bg, width=8, height=1, relief='solid', bd=1, padx=2, pady=3)
+                lbl.grid(row=r, column=0, rowspan=num_rows, sticky='nsew')
 
-                f = font_bold if is_bold else font
-                cell_bgs = [
-                    init_bg, init_bg, init_bg,
-                    eua_bg, eua_bg, eua_bg, eua_bg,
-                    bg_color, bg_color, bg_color, bg_color,
-                    goal_bg, goal_bg, goal_bg,
-                ]
+                init_vals = get_vals(item, 'init')
+                curr_vals = get_vals(item, 'curr')
+                live_vals = get_vals(item, 'live')
 
-                for i, text in enumerate(vals):
-                    display_text = text if text else ''
-                    lbl = tk.Label(table_container, text=display_text, font=f,
-                                   fg='#333333', bg=cell_bgs[i], width=col_widths[i + 2],
-                                   relief='solid', bd=1, padx=1, pady=2)
-                    lbl.grid(row=r, column=i + 2, sticky='nsew')
+                def render_data_row(dr, label, vals, bg_color, is_bold=False):
+                    type_bg = final_bg if label in ('终', '即时', '滚球') else init_bg
+                    type_fg = '#ff6600' if label in ('即时', '滚球') else '#666666'
+                    lbl_type = tk.Label(table_container, text=label, font=font_bold,
+                                        fg=type_fg, bg=type_bg, width=4, height=1, relief='solid', bd=1, padx=2, pady=3)
+                    lbl_type.grid(row=dr, column=1, sticky='nsew')
 
-            render_data_row(row, '初', init_vals, init_bg)
+                    cell_bgs = [
+                        init_bg, init_bg, init_bg,
+                        eua_bg, eua_bg, eua_bg, eua_bg,
+                        bg_color, bg_color, bg_color, bg_color,
+                        goal_bg, goal_bg, goal_bg,
+                    ]
 
-            if has_final:
-                render_data_row(row + 1, '终', live_vals, final_bg)
-                render_data_row(row + 2, '滚球', live_vals, live_bg, is_bold=True)
-            else:
-                label = '滚球' if has_live else '即时'
-                data_vals = live_vals if has_live else curr_vals
-                render_data_row(row + 1, label, data_vals, live_bg, is_bold=True)
+                    for i, text in enumerate(vals):
+                        display_text = text if text else ''
+                        is_handicap = i in (4, 9, 12)
+                        fg_c = '#cc3300' if is_handicap and display_text else '#0055cc'
+                        f = font_bold if is_handicap and display_text else font
+                        lbl = tk.Label(table_container, text=display_text, font=f,
+                                       fg=fg_c, bg=cell_bgs[i], width=col_widths[i + 2],
+                                       height=1, relief='solid', bd=1, padx=2, pady=3)
+                        lbl.grid(row=dr, column=i + 2, sticky='nsew')
 
-            row += num_rows
+                render_data_row(r, '初', init_vals, init_bg)
+
+                if has_final:
+                    render_data_row(r + 1, '终', live_vals, final_bg)
+                    render_data_row(r + 2, '滚球', live_vals, live_bg, is_bold=True)
+                else:
+                    label = '滚球' if has_live else '即时'
+                    data_vals = live_vals if has_live else curr_vals
+                    render_data_row(r + 1, label, data_vals, live_bg, is_bold=True)
+
+                r += num_rows
+
+            table_container.update_idletasks()
+            table_canvas.configure(scrollregion=table_canvas.bbox("all"),
+                                   height=table_container.winfo_reqheight())
+
+        for var in company_vars.values():
+            var.trace_add('write', build_table)
+
+        build_table()
 
         for c in range(16):
             table_container.grid_columnconfigure(c, weight=1)
@@ -474,6 +702,41 @@ class OddsTableDisplay:
 
         self.create_odds_table_web_style(title, headers, rows, col_widths)
 
+    def _create_team_standings_section(self, standings_data: Dict):
+        """创建球队积分统计区域 - 从porlet_5数据"""
+        for team_key, label in [('home_team', '主队'), ('away_team', '客队')]:
+            team_data = standings_data.get(team_key)
+            if not team_data:
+                continue
+
+            team_name = team_data.get('name', label)
+            title = f'{team_name} 积分排名'
+
+            headers = ['', '赛', '胜', '平', '负', '得', '失', '净', '积分', '排名', '胜率']
+            col_widths = [6, 5, 5, 5, 5, 5, 5, 6, 6, 5, 8]
+
+            rows = []
+            for stat_type, stat_label in [('total', '总'), ('home', '主'), ('away', '客')]:
+                stats = team_data.get(stat_type)
+                if not stats:
+                    continue
+                rows.append([
+                    stat_label,
+                    stats.get('played', ''),
+                    stats.get('won', ''),
+                    stats.get('drawn', ''),
+                    stats.get('lost', ''),
+                    stats.get('gf', ''),
+                    stats.get('ga', ''),
+                    stats.get('gd', ''),
+                    stats.get('points', ''),
+                    stats.get('rank', ''),
+                    stats.get('win_rate', '')
+                ])
+
+            if rows:
+                self.create_odds_table_web_style(title, headers, rows, col_widths)
+
     def create_match_record_table(self, title: str, records: List[Dict]):
         """创建比赛记录表格"""
         headers = ['日期', '赛事', '主队', '比分', '客队', '盘口', '结果']
@@ -534,6 +797,29 @@ class OddsTableDisplay:
 
         self.create_odds_table_web_style(title, headers, rows, col_widths)
 
+    def _load_team_logo(self, parent, url, scale, bg_color, row=0, col=0):
+        try:
+            import requests as req_lib
+            from PIL import Image, ImageTk
+            logo_size = max(30, int(40 * scale))
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://zq.titan007.com/',
+            }
+            resp = req_lib.get(url, headers=headers, timeout=5)
+            if resp.status_code != 200:
+                return False
+            img = Image.open(BytesIO(resp.content))
+            img = img.resize((logo_size, logo_size), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+            lbl = tk.Label(parent, image=photo, bg=bg_color)
+            lbl.image = photo
+            lbl.grid(row=row, column=col, padx=5, pady=5)
+            return True
+        except Exception as e:
+            print(f"加载队徽失败: {e}")
+            return False
+
     def create_info_card(self, match: Dict):
         """创建比赛信息卡片"""
         s = self.scale
@@ -549,26 +835,51 @@ class OddsTableDisplay:
 
         tk.Label(header, text=f" {match_id} ", font=('Microsoft YaHei', max(14, int(16*s)), 'bold'),
                 fg='#ffffff', bg='#0066cc', padx=10, pady=5).pack(side=tk.LEFT)
-        tk.Label(header, text=f" {league} ", font=('Microsoft YaHei', max(10, int(12*s))),
-                fg='#ffffff', bg='#0066cc', pady=5).pack(side=tk.LEFT)
+
+        league_round = match.get('league_round', '')
+        league = match.get('league', '')
+        display_league = league_round if league_round else league
+        if display_league:
+            league_label = tk.Label(header, text=f" {display_league} ", font=('Microsoft YaHei', max(10, int(12*s))),
+                    fg='#ffdd44' if league_round else '#ffffff', bg='#0066cc', pady=5, cursor='hand2' if league_round else '')
+            league_label.pack(side=tk.LEFT)
+            standings_data = match.get('standings_data')
+            if standings_data and league_round:
+                home_team = match.get('home_team', '')
+                away_team = match.get('away_team', '')
+                StandingsTooltip(league_label, standings_data, s, home_team, away_team)
+
+        match_date = match.get('match_date', '')
+        match_time = match.get('match_time', '')
+        match_day = match.get('match_day', '')
+        date_parts = []
+        if match_date:
+            date_parts.append(match_date)
+        if match_time:
+            date_parts.append(match_time)
+        if match_day:
+            date_parts.append(match_day)
+        if date_parts:
+            tk.Label(header, text=f" {' '.join(date_parts)} ", font=('Microsoft YaHei', max(9, int(11*s))),
+                    fg='#bbddff', bg='#0066cc', pady=5).pack(side=tk.RIGHT, padx=10)
 
         teams_frame = tk.Frame(info_frame, bg='#ffffff')
         teams_frame.pack(fill=tk.X, padx=10, pady=10)
 
         home_team = match.get('home_team', '')
         away_team = match.get('away_team', '')
-        home_score = match.get('home_score', '')
-        away_score = match.get('away_score', '')
-        home_jc = match.get('home_jc_score', '')
-        away_jc = match.get('away_jc_score', '')
 
         home_frame = tk.Frame(teams_frame, bg='#ffffff')
         home_frame.pack(side=tk.LEFT, expand=True)
-        tk.Label(home_frame, text=home_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
+
+        home_logo_url = match.get('home_logo', '')
+        if home_logo_url:
+            self._load_team_logo(home_frame, home_logo_url, s, '#ffffff', row=0, col=0)
+
+        home_text_frame = tk.Frame(home_frame, bg='#ffffff')
+        home_text_frame.grid(row=0, column=1, padx=5)
+        tk.Label(home_text_frame, text=home_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
                 fg='#cc0000', bg='#ffffff').pack()
-        if home_score != '':
-            tk.Label(home_frame, text=home_score, font=('Microsoft YaHei', max(20, int(24*s)), 'bold'),
-                    fg='#cc0000', bg='#ffffff').pack()
 
         vs_frame = tk.Frame(teams_frame, bg='#ffffff')
         vs_frame.pack(side=tk.LEFT, padx=20)
@@ -577,18 +888,15 @@ class OddsTableDisplay:
 
         away_frame = tk.Frame(teams_frame, bg='#ffffff')
         away_frame.pack(side=tk.LEFT, expand=True)
-        tk.Label(away_frame, text=away_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
-                fg='#0066cc', bg='#ffffff').pack()
-        if away_score != '':
-            tk.Label(away_frame, text=away_score, font=('Microsoft YaHei', max(20, int(24*s)), 'bold'),
-                    fg='#0066cc', bg='#ffffff').pack()
 
-        if (home_jc != '' or away_jc != '') and (home_jc != home_score or away_jc != away_score):
-            jc_frame = tk.Frame(info_frame, bg='#fff8e1', bd=1, relief='solid')
-            jc_frame.pack(fill=tk.X, padx=10, pady=5)
-            jc_text = f"竞彩比分: {home_jc}:{away_jc}"
-            tk.Label(jc_frame, text=jc_text, font=('Microsoft YaHei', max(10, int(12*s))),
-                    fg='#ff6600', bg='#fff8e1').pack(pady=3)
+        away_logo_url = match.get('away_logo', '')
+        if away_logo_url:
+            self._load_team_logo(away_frame, away_logo_url, s, '#ffffff', row=0, col=0)
+
+        away_text_frame = tk.Frame(away_frame, bg='#ffffff')
+        away_text_frame.grid(row=0, column=1, padx=5)
+        tk.Label(away_text_frame, text=away_team, font=('Microsoft YaHei', max(12, int(14*s)), 'bold'),
+                fg='#0066cc', bg='#ffffff').pack()
 
         status_frame = tk.Frame(info_frame, bg='#f5f5f5')
         status_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -624,11 +932,25 @@ class OddsTableDisplay:
             tk.Label(status_frame, text=f"盘口: {handicap_text}", font=('Microsoft YaHei', max(10, int(12*s))),
                     fg='#cc0000', bg='#f5f5f5').pack(side=tk.LEFT, padx=10, pady=5)
 
+        venue = match.get('venue', '')
+        weather = match.get('weather', '')
+        temperature = match.get('temperature', '')
+        vw_parts = []
+        if venue:
+            vw_parts.append(f"场地: {venue}")
+        if weather:
+            vw_parts.append(f"天气: {weather}")
+        if temperature:
+            vw_parts.append(temperature)
+        if vw_parts:
+            tk.Label(status_frame, text='  '.join(vw_parts), font=('Microsoft YaHei', max(9, int(11*s))),
+                    fg='#888888', bg='#f5f5f5').pack(side=tk.RIGHT, padx=10, pady=5)
+
     def _jc_cell(self, parent, text, row, col, font, fg='#333333', bg='#FFFFFF',
                  width=6, rowspan=1, colspan=1, bold=False):
         f = ('Microsoft YaHei', font[1], 'bold') if bold else font
         lbl = tk.Label(parent, text=str(text) if text else '', font=f,
-                       fg=fg, bg=bg, width=width, relief='solid', bd=1, padx=1, pady=2)
+                       fg=fg, bg=bg, width=width, height=1, relief='solid', bd=1, padx=2, pady=3)
         if rowspan > 1 and colspan > 1:
             lbl.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, sticky='nsew')
         elif rowspan > 1:
@@ -638,38 +960,9 @@ class OddsTableDisplay:
         else:
             lbl.grid(row=row, column=col, sticky='nsew')
 
-    def _jc_span_cell(self, parent, row, col, spans, font, bg='#FFFFFF',
-                      fg='#333333', width=None, rowspan=1, colspan=1, bold=False,
-                      span_fg=None, span_width=None, span_bg=None):
-        f = ('Microsoft YaHei', font[1], 'bold') if bold else font
-        cell_frame = tk.Frame(parent, bg='#dddddd', bd=0)
-        if rowspan > 1 and colspan > 1:
-            cell_frame.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, sticky='nsew')
-        elif rowspan > 1:
-            cell_frame.grid(row=row, column=col, rowspan=rowspan, sticky='nsew')
-        elif colspan > 1:
-            cell_frame.grid(row=row, column=col, columnspan=colspan, sticky='nsew')
-        else:
-            cell_frame.grid(row=row, column=col, sticky='nsew')
-
-        sw = span_width or 5
-        for i, span_text in enumerate(spans):
-            sfg = fg
-            if span_fg and i < len(span_fg):
-                sfg = span_fg[i]
-            sbg = bg
-            if span_bg and i < len(span_bg):
-                sbg = span_bg[i]
-            sb = bold or (span_fg and i < len(span_fg) and span_fg[i] != fg)
-            sf = ('Microsoft YaHei', font[1], 'bold') if sb else font
-            lbl = tk.Label(cell_frame, text=str(span_text) if span_text else '',
-                           font=sf, fg=sfg, bg=sbg, width=sw, anchor='center',
-                           relief='solid', bd=1, padx=1, pady=2)
-            lbl.pack(side=tk.LEFT, padx=0)
-
     def create_european_odds_table(self, match: Dict, analysis_data: Dict = None):
         s = self.scale
-        char_width = max(7, int(9 * s))
+        char_width = max(11, int(13 * s))
         font = ('Microsoft YaHei', char_width)
         font_bold = ('Microsoft YaHei', char_width, 'bold')
 
@@ -740,27 +1033,67 @@ class OddsTableDisplay:
         if not has_wl_sf:
             return
 
-        table_outer = tk.Frame(self.parent, bg=self.border_color, bd=1)
-        table_outer.pack(fill=tk.X, padx=5, pady=(0, 5))
-        c = tk.Frame(table_outer, bg=self.border_color)
-        c.pack(fill=tk.X)
+        jc_scroll = tk.Frame(self.parent, bg=self.border_color)
+        jc_scroll.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        self._jc_cell(c, '胜平负/亚让', 0, 0, font_bold, bg=header_bg,
-                      colspan=2, bold=True)
-        self._jc_cell(c, '进球数', 0, 2, font_bold, bg=header_bg, bold=True)
+        jc_canvas = tk.Canvas(jc_scroll, bg=self.border_color, highlightthickness=0)
+        h_scroll = ttk.Scrollbar(jc_scroll, orient='horizontal', command=jc_canvas.xview)
 
-        self._jc_cell(c, '全场', 1, 0, font_bold, fg='#333333', bg=sub_bg,
-                      width=5, rowspan=2, bold=True)
+        jc_inner = tk.Frame(jc_canvas, bg=self.border_color)
+        jc_win_id = jc_canvas.create_window((0, 0), window=jc_inner, anchor='nw')
 
-        wl_spans = ['', wl_home, wl_draw, wl_away]
-        wl_fg = ['#333333', '#4F85FF', '#4F85FF', '#4F85FF']
-        self._jc_span_cell(c, 1, 1, wl_spans, font, bg=row_bg, fg='#333333',
-                           span_fg=wl_fg, span_width=5)
+        def _on_inner_configure(event):
+            jc_canvas.configure(scrollregion=jc_canvas.bbox('all'))
+            inner_w = jc_inner.winfo_reqwidth()
+            canvas_w = jc_canvas.winfo_width()
+            if inner_w <= canvas_w:
+                h_scroll.grid_remove()
+            else:
+                h_scroll.grid()
+
+        def _on_canvas_configure(event):
+            jc_canvas.itemconfig(jc_win_id, width=event.width)
+            inner_h = jc_inner.winfo_reqheight()
+            jc_canvas.configure(height=inner_h)
+
+        jc_inner.bind('<Configure>', _on_inner_configure)
+        jc_canvas.bind('<Configure>', _on_canvas_configure)
+        jc_canvas.configure(xscrollcommand=h_scroll.set)
+
+        jc_canvas.pack(fill=tk.X, side=tk.TOP)
+        h_scroll.pack(fill=tk.X, side=tk.BOTTOM)
+        h_scroll.pack_forget()
+
+        table1 = tk.Frame(jc_inner, bg=self.border_color, bd=1)
+        table1.pack(fill=tk.X, padx=0, pady=(0, 2))
+
+        goal_count = 8 if has_goal else 0
+        total_cols = 1 + 4 + goal_count
+
+        self._jc_cell(table1, '胜平负/亚让', 0, 0, font_bold, bg=header_bg,
+                      colspan=1 + 4, bold=True, width=6)
+        if has_goal:
+            self._jc_cell(table1, '进球数', 0, 1 + 4, font_bold, bg=header_bg,
+                          colspan=goal_count, bold=True, width=6)
+
+        self._jc_cell(table1, '全场', 1, 0, font_bold, fg='#333333', bg=sub_bg,
+                      width=5, rowspan=3, bold=True)
+
+        wl_header_labels = ['', '主胜', '平局', '客胜']
+        for i in range(4):
+            self._jc_cell(table1, wl_header_labels[i], 1, 1 + i, font,
+                          fg='#666666', bg=sub_bg, width=6, bold=True)
 
         if has_goal:
             goal_labels = ['0球', '1球', '2球', '3球', '4球', '5球', '6球', '7+球']
-            self._jc_span_cell(c, 1, 2, goal_labels, font, bg=sub_bg, fg='#333333',
-                               span_width=4)
+            for i, gl in enumerate(goal_labels):
+                self._jc_cell(table1, gl, 1, 5 + i, font, fg='#666666', bg=sub_bg, width=5, bold=True)
+
+        self._jc_cell(table1, '', 2, 1, font, bg=row_bg, width=6)
+        wl_vals = [wl_home, wl_draw, wl_away]
+        for i, val in enumerate(wl_vals):
+            self._jc_cell(table1, val if val else '', 2, 2 + i, font,
+                          fg='#0055cc', bg=row_bg, width=6, bold=bool(val))
 
         hcp_text = ''
         if hcp != '':
@@ -770,31 +1103,33 @@ class OddsTableDisplay:
             except (ValueError, TypeError):
                 hcp_text = str(hcp)
 
-        sf_spans = [hcp_text, sf_home, sf_draw, sf_away]
-        sf_fg = ['#cc0000', '#4F85FF', '#4F85FF', '#4F85FF']
-        self._jc_span_cell(c, 2, 1, sf_spans, font, bg=row_bg, fg='#333333',
-                           span_fg=sf_fg, span_width=5)
+        sf_vals = [hcp_text, sf_home, sf_draw, sf_away]
+        for i, val in enumerate(sf_vals):
+            self._jc_cell(table1, val if val else '', 3, 1 + i, font,
+                          fg='#0055cc', bg=row_bg, width=6,
+                          bold=(i == 0 and bool(val)))
 
         if has_goal:
-            goal_strs = [str(v) if v else '' for v in goal_vals]
-            self._jc_span_cell(c, 2, 2, goal_strs, font, bg=row_bg, fg='#333333',
-                               span_width=4)
+            for i, val in enumerate(goal_vals):
+                self._jc_cell(table1, str(val) if val else '', 2, 5 + i, font,
+                              fg='#0055cc', bg=row_bg, width=5)
+            for i in range(goal_count):
+                self._jc_cell(table1, '', 3, 5 + i, font, bg=row_bg, width=5)
 
-        c.grid_columnconfigure(0, weight=0, minsize=60)
-        c.grid_columnconfigure(1, weight=1)
-        c.grid_columnconfigure(2, weight=1)
+        for col in range(total_cols):
+            table1.grid_columnconfigure(col, weight=1)
 
         score_live = jc.get('score_live', {})
         if score_live and any(v for v in score_live.values() if v):
-            self._create_jc_score_table(score_live, font, font_bold, header_bg, sub_bg, row_bg)
+            self._create_jc_score_table(jc_inner, score_live, font, font_bold, header_bg, sub_bg, row_bg)
 
         hf_live = jc.get('hf_live', {})
         if hf_live and any(v for v in hf_live.values() if v):
-            self._create_jc_hf_table(hf_live, font, font_bold, header_bg, sub_bg, row_bg)
+            self._create_jc_hf_table(jc_inner, hf_live, font, font_bold, header_bg, sub_bg, row_bg)
 
-    def _create_jc_score_table(self, score_live, font, font_bold, header_bg, sub_bg, row_bg):
-        table_outer = tk.Frame(self.parent, bg=self.border_color, bd=1)
-        table_outer.pack(fill=tk.X, padx=5, pady=(0, 5))
+    def _create_jc_score_table(self, parent, score_live, font, font_bold, header_bg, sub_bg, row_bg):
+        table_outer = tk.Frame(parent, bg=self.border_color, bd=1)
+        table_outer.pack(fill=tk.X, padx=0, pady=(0, 2))
         c = tk.Frame(table_outer, bg=self.border_color)
         c.pack(fill=tk.X)
 
@@ -820,67 +1155,66 @@ class OddsTableDisplay:
             ('负其它', 'lose_other'),
         ]
 
-        self._jc_cell(c, '胜', 1, 0, font_bold, fg='#cc0000', bg=sub_bg, width=4, bold=True)
+        self._jc_cell(c, '胜', 1, 0, font_bold, fg='#666666', bg=sub_bg, width=5, bold=True)
         for i, (label, key) in enumerate(win_scores):
-            self._jc_cell(c, label, 1, 1 + i, font, fg='#333333', bg=sub_bg, width=4)
+            self._jc_cell(c, label, 1, 1 + i, font, fg='#666666', bg=sub_bg, width=5, bold=True)
         for i in range(len(win_scores), 13):
-            self._jc_cell(c, '', 1, 1 + i, font, bg=sub_bg, width=4)
+            self._jc_cell(c, '', 1, 1 + i, font, bg=sub_bg, width=5)
 
-        self._jc_cell(c, '', 2, 0, font, bg=row_bg, width=4)
+        self._jc_cell(c, '', 2, 0, font, bg=row_bg, width=5)
         for i, (label, key) in enumerate(win_scores):
             val = score_live.get(key, '')
-            self._jc_cell(c, val if val else '', 2, 1 + i, font, fg='#333333', bg=row_bg, width=4)
+            self._jc_cell(c, val if val else '', 2, 1 + i, font, fg='#0055cc', bg=row_bg, width=5)
         for i in range(len(win_scores), 13):
-            self._jc_cell(c, '', 2, 1 + i, font, bg=row_bg, width=4)
+            self._jc_cell(c, '', 2, 1 + i, font, bg=row_bg, width=5)
 
-        self._jc_cell(c, '平', 3, 0, font_bold, fg='#009900', bg=sub_bg, width=4, bold=True)
+        self._jc_cell(c, '平', 3, 0, font_bold, fg='#666666', bg=sub_bg, width=5, bold=True)
         for i, (label, key) in enumerate(draw_scores):
-            self._jc_cell(c, label, 3, 1 + i, font, fg='#333333', bg=sub_bg, width=4)
+            self._jc_cell(c, label, 3, 1 + i, font, fg='#666666', bg=sub_bg, width=5, bold=True)
         for i in range(len(draw_scores), 13):
-            self._jc_cell(c, '', 3, 1 + i, font, bg=sub_bg, width=4)
+            self._jc_cell(c, '', 3, 1 + i, font, bg=sub_bg, width=5)
 
-        self._jc_cell(c, '', 4, 0, font, bg=row_bg, width=4)
+        self._jc_cell(c, '', 4, 0, font, bg=row_bg, width=5)
         for i, (label, key) in enumerate(draw_scores):
             val = score_live.get(key, '')
-            self._jc_cell(c, val if val else '', 4, 1 + i, font, fg='#333333', bg=row_bg, width=4)
+            self._jc_cell(c, val if val else '', 4, 1 + i, font, fg='#0055cc', bg=row_bg, width=5)
         for i in range(len(draw_scores), 13):
-            self._jc_cell(c, '', 4, 1 + i, font, bg=row_bg, width=4)
+            self._jc_cell(c, '', 4, 1 + i, font, bg=row_bg, width=5)
 
-        self._jc_cell(c, '负', 5, 0, font_bold, fg='#0066cc', bg=sub_bg, width=4, bold=True)
+        self._jc_cell(c, '负', 5, 0, font_bold, fg='#666666', bg=sub_bg, width=5, bold=True)
         for i, (label, key) in enumerate(lose_scores):
-            self._jc_cell(c, label, 5, 1 + i, font, fg='#333333', bg=sub_bg, width=4)
+            self._jc_cell(c, label, 5, 1 + i, font, fg='#666666', bg=sub_bg, width=5, bold=True)
         for i in range(len(lose_scores), 13):
-            self._jc_cell(c, '', 5, 1 + i, font, bg=sub_bg, width=4)
+            self._jc_cell(c, '', 5, 1 + i, font, bg=sub_bg, width=5)
 
-        self._jc_cell(c, '', 6, 0, font, bg=row_bg, width=4)
+        self._jc_cell(c, '', 6, 0, font, bg=row_bg, width=5)
         for i, (label, key) in enumerate(lose_scores):
             val = score_live.get(key, '')
-            self._jc_cell(c, val if val else '', 6, 1 + i, font, fg='#333333', bg=row_bg, width=4)
+            self._jc_cell(c, val if val else '', 6, 1 + i, font, fg='#0055cc', bg=row_bg, width=5)
         for i in range(len(lose_scores), 13):
-            self._jc_cell(c, '', 6, 1 + i, font, bg=row_bg, width=4)
+            self._jc_cell(c, '', 6, 1 + i, font, bg=row_bg, width=5)
 
         for col in range(14):
             c.grid_columnconfigure(col, weight=1)
 
-    def _create_jc_hf_table(self, hf_live, font, font_bold, header_bg, sub_bg, row_bg):
-        table_outer = tk.Frame(self.parent, bg=self.border_color, bd=1)
-        table_outer.pack(fill=tk.X, padx=5, pady=(0, 10))
+    def _create_jc_hf_table(self, parent, hf_live, font, font_bold, header_bg, sub_bg, row_bg):
+        table_outer = tk.Frame(parent, bg=self.border_color, bd=1)
+        table_outer.pack(fill=tk.X, padx=0, pady=(0, 2))
         c = tk.Frame(table_outer, bg=self.border_color)
         c.pack(fill=tk.X)
 
-        self._jc_cell(c, '半全场', 0, 0, font_bold, bg=header_bg, width=9 * 5,
+        self._jc_cell(c, '半全场', 0, 0, font_bold, bg=header_bg, width=9 * 6,
                       colspan=9, bold=True)
 
         hf_labels = ['胜/胜', '胜/平', '胜/负', '平/胜', '平/平', '平/负', '负/胜', '负/平', '负/负']
         hf_keys = ['ww', 'wd', 'wl', 'dw', 'dd', 'dl', 'lw', 'ld', 'll']
 
         for i, lbl_text in enumerate(hf_labels):
-            fg_c = '#cc0000' if i < 3 else '#009900' if i < 6 else '#0066cc'
-            self._jc_cell(c, lbl_text, 1, i, font, fg=fg_c, bg=sub_bg, width=5)
+            self._jc_cell(c, lbl_text, 1, i, font, fg='#666666', bg=sub_bg, width=6, bold=True)
 
         for i, key in enumerate(hf_keys):
             val = hf_live.get(key, '')
-            self._jc_cell(c, val if val else '', 2, i, font, fg='#333333', bg=row_bg, width=5)
+            self._jc_cell(c, val if val else '', 2, i, font, fg='#0055cc', bg=row_bg, width=6)
 
         for col in range(9):
             c.grid_columnconfigure(col, weight=1)
@@ -916,20 +1250,16 @@ class OddsTableDisplay:
         # 比赛信息卡
         self.create_info_card(match)
 
-        # 即时赔率
-        self.create_european_odds_table(match, analysis_data)
-
         if analysis_data:
-            # 即时走势 - 包含让球/大小球/欧洲指数
-            trend_data = analysis_data.get('trend_data', [])
-            if trend_data:
-                self.create_trend_table('即时走势 (让球/大小球/欧洲指数)', trend_data)
-
             # 即时走势比较（让球/大小球/欧洲指数）
             odds_trend = analysis_data.get('odds_trend', [])
             if odds_trend:
                 self.create_odds_trend_table(odds_trend)
 
+        # 即时赔率
+        self.create_european_odds_table(match, analysis_data)
+
+        if analysis_data:
             # 欧洲指数
             euro_odds = analysis_data.get('european_odds', [])
             if euro_odds:
@@ -945,14 +1275,19 @@ class OddsTableDisplay:
             if goal_odds:
                 self.create_company_odds_table('进球数', goal_odds, 'goal')
 
-            # 联赛积分排名
-            standings = analysis_data.get('league_standings', {})
-            home_standings = standings.get('home', [])
-            away_standings = standings.get('away', [])
-            if home_standings:
-                self.create_standings_table(f'{match.get("home_team", "主队")} 联赛排名', home_standings)
-            if away_standings:
-                self.create_standings_table(f'{match.get("away_team", "客队")} 联赛排名', away_standings)
+            standings = analysis_data.get('standings_data', {})
+            if standings.get('home_team') or standings.get('away_team'):
+                self._create_team_standings_section(standings)
+            else:
+                total_standings = standings.get('total', [])
+                home_standings = standings.get('home', [])
+                away_standings = standings.get('away', [])
+                if total_standings:
+                    self.create_standings_table('总积分榜', total_standings)
+                if home_standings:
+                    self.create_standings_table('主场积分榜', home_standings)
+                if away_standings:
+                    self.create_standings_table('客场积分榜', away_standings)
 
             # 对赛往绩
             h2h = analysis_data.get('h2h_records', [])
