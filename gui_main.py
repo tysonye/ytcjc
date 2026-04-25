@@ -1,14 +1,49 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import json
 import re
 from datetime import datetime
 from typing import List, Dict, Optional
 import threading
 import random
+import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup
 from odds_display import OddsTableDisplay
+
+
+class DataCache:
+    def __init__(self, max_size=100, ttl=300):
+        self.cache = OrderedDict()
+        self.max_size = max_size
+        self.ttl = ttl
+
+    def get(self, key):
+        if key in self.cache:
+            data, timestamp = self.cache[key]
+            if time.time() - timestamp < self.ttl:
+                self.cache.move_to_end(key)
+                return data
+            else:
+                del self.cache[key]
+        return None
+
+    def set(self, key, data):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = (data, time.time())
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+
+    def invalidate(self, key):
+        self.cache.pop(key, None)
+
+    def clear(self):
+        self.cache.clear()
 
 
 class MatchScraper:
@@ -18,10 +53,17 @@ class MatchScraper:
         self.today_url = "https://jc.titan007.com/xml/bf_jc.txt"
         self.history_url = "https://jc.titan007.com/handle/JcResult.aspx"
         self.session = requests.Session()
+        retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503])
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=20)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Connection': 'keep-alive',
         })
+        self.detail_cache = DataCache(max_size=50, ttl=120)
+        self.list_cache = DataCache(max_size=10, ttl=60)
 
     def get_url_for_date(self, date_str: str) -> str:
         """根据日期获取对应的URL"""
@@ -206,29 +248,49 @@ class MatchScraper:
         matches = self.parse_matches(content)
         return matches
 
-    def fetch_match_analysis(self, match: Dict) -> Dict:
-        """获取比赛分析数据"""
+    def fetch_match_analysis(self, match: Dict, cancel_event=None) -> Dict:
         match_unique_id = match.get('match_unique_id', '')
         if not match_unique_id:
             return {}
+
+        cache_key = f"detail_{match_unique_id}"
+        cached = self.detail_cache.get(cache_key)
+        if cached:
+            print(f"[缓存] 使用缓存数据: {match_unique_id}")
+            return cached
 
         url = f"https://zq.titan007.com/analysis/{match_unique_id}.htm"
         print(f"正在获取分析页面: {url}")
 
         try:
-            response = self.session.get(url, timeout=10)
+            response = self.session.get(url, timeout=8)
             response.encoding = 'utf-8'
+
+            if cancel_event and cancel_event.is_set():
+                return {}
 
             if response.status_code == 200:
                 analysis_data = self.parse_analysis_data(response.text)
-                # 获取即时走势赔率数据
-                odds_data = self.fetch_odds_trend(match_unique_id)
-                if odds_data:
-                    analysis_data['odds_trend'] = odds_data
-                # 获取竞彩指数数据
-                jc_odds = self.fetch_jc_odds(match_unique_id)
-                if jc_odds:
-                    analysis_data['jc_odds'] = jc_odds
+
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    future_odds = executor.submit(self.fetch_odds_trend, match_unique_id)
+                    future_jc = executor.submit(self.fetch_jc_odds, match_unique_id)
+
+                    try:
+                        odds_data = future_odds.result(timeout=8)
+                        if odds_data:
+                            analysis_data['odds_trend'] = odds_data
+                    except Exception as e:
+                        print(f"获取走势数据超时或失败: {e}")
+
+                    try:
+                        jc_odds = future_jc.result(timeout=8)
+                        if jc_odds:
+                            analysis_data['jc_odds'] = jc_odds
+                    except Exception as e:
+                        print(f"获取竞彩指数超时或失败: {e}")
+
+                self.detail_cache.set(cache_key, analysis_data)
                 return analysis_data
         except Exception as e:
             print(f"获取分析页面失败: {e}")
@@ -236,10 +298,9 @@ class MatchScraper:
         return {}
 
     def fetch_odds_trend(self, schedule_id: str) -> List[Dict]:
-        """获取即时走势赔率数据 - 让球/大小球/欧洲指数"""
         try:
             url = f"https://zq.titan007.com/analysis/odds/{schedule_id}.htm"
-            response = self.session.get(url, timeout=10)
+            response = self.session.get(url, timeout=8)
             if response.status_code != 200:
                 return []
 
@@ -250,10 +311,9 @@ class MatchScraper:
             return []
 
     def fetch_jc_odds(self, schedule_id: str) -> Dict:
-        """获取竞彩指数数据 - 从/getAnalyData API获取"""
         try:
             url = f"https://zq.titan007.com/default/getAnalyData?sid={schedule_id}&t=1&r={int(__import__('time').time()*1000)}"
-            response = self.session.get(url, timeout=10)
+            response = self.session.get(url, timeout=8)
             if response.status_code != 200:
                 return {}
             return self._parse_jc_odds(response.text)
@@ -1798,12 +1858,26 @@ class MatchDisplayApp:
                 break
         if not current_match:
             return
+
+        status = current_match.get('status', '')
+        if '完场' in status:
+            cache_key = f"detail_{current_id}"
+            cached = self.scraper.detail_cache.get(cache_key)
+            if cached:
+                print(f"[缓存] 已完场比赛使用缓存: {current_id}")
+                return
+
         self.show_match_detail(current_match)
 
     def show_match_detail(self, match: Dict):
+        if hasattr(self, '_current_load_event') and self._current_load_event:
+            self._current_load_event.set()
+
+        cancel_event = threading.Event()
+        self._current_load_event = cancel_event
+
         self._current_detail_match_id = match.get('match_unique_id', '')
         s = self.scale
-        # 清除详情区域
         for widget in self.detail_frame.winfo_children():
             try:
                 widget.destroy()
@@ -1813,14 +1887,18 @@ class MatchDisplayApp:
         loading_label = tk.Label(self.detail_frame, text="正在加载详细数据...", font=('Microsoft YaHei', max(10, int(16*s))), fg='#00ff88', bg='#0f3460')
         loading_label.pack(expand=True)
 
-        # 异步加载网页分析数据
         def load_detail():
-            analysis_data = self.scraper.fetch_match_analysis(match)
+            analysis_data = self.scraper.fetch_match_analysis(match, cancel_event=cancel_event)
+            if cancel_event.is_set():
+                return
             if analysis_data:
                 for key in ['venue', 'weather', 'temperature', 'league_round', 'match_date', 'match_day', 'home_logo', 'away_logo', 'standings_data']:
                     if key in analysis_data and key not in match:
                         match[key] = analysis_data[key]
-            self.root.after(0, lambda: self._safe_display_web_analysis(match, analysis_data, loading_label))
+            try:
+                self.root.after(0, lambda: self._safe_display_web_analysis(match, analysis_data, loading_label))
+            except tk.TclError:
+                pass
 
         thread = threading.Thread(target=load_detail, daemon=True)
         thread.start()

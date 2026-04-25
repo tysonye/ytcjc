@@ -3,6 +3,9 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, List
 from io import BytesIO
+import os
+import hashlib
+import threading
 
 
 class StandingsTooltip:
@@ -548,79 +551,100 @@ class OddsTableDisplay:
                 d.get(f'goal_{prefix}_small', ''),
             ]
 
+        _build_lock = threading.Lock()
+        _pending_build = [False]
+
         def build_table(*args):
-            for w in table_container.winfo_children():
-                if int(w.grid_info()['row']) >= 2:
-                    w.destroy()
+            with _build_lock:
+                if _pending_build[0]:
+                    return
+                _pending_build[0] = True
 
-            filtered_trend = [item for item in odds_trend
-                              if company_vars.get(item.get('company_id', ''), tk.BooleanVar(value=True)).get()]
+            try:
+                for w in table_container.winfo_children():
+                    try:
+                        gi = w.grid_info()
+                        if gi and int(gi.get('row', 0)) >= 2:
+                            w.destroy()
+                    except (tk.TclError, ValueError, KeyError):
+                        pass
 
-            r = 2
-            for item in filtered_trend:
-                company = item.get('company', '')
-                company_id = item.get('company_id', '')
+                filtered_trend = [item for item in odds_trend
+                                  if company_vars.get(item.get('company_id', ''), tk.BooleanVar(value=True)).get()]
 
-                has_live = any([
-                    item.get('eu_live_home'), item.get('eua_live_home'),
-                    item.get('real_live_home'), item.get('goal_live_big')
-                ])
-                has_final = (company_id == '3' and has_live)
+                r = 2
+                for item in filtered_trend:
+                    company = item.get('company', '')
+                    company_id = item.get('company_id', '')
 
-                num_rows = 3 if has_final else 2
+                    has_live = any([
+                        item.get('eu_live_home'), item.get('eua_live_home'),
+                        item.get('real_live_home'), item.get('goal_live_big')
+                    ])
+                    has_final = (company_id == '3' and has_live)
 
-                lbl = tk.Label(table_container, text=company, font=font_bold, fg='#0066cc',
-                               bg=init_bg, width=8, height=1, relief='solid', bd=1, padx=2, pady=3)
-                lbl.grid(row=r, column=0, rowspan=num_rows, sticky='nsew')
+                    num_rows = 3 if has_final else 2
 
-                init_vals = get_vals(item, 'init')
-                curr_vals = get_vals(item, 'curr')
-                live_vals = get_vals(item, 'live')
+                    lbl = tk.Label(table_container, text=company, font=font_bold, fg='#0066cc',
+                                   bg=init_bg, width=8, height=1, relief='solid', bd=1, padx=2, pady=3)
+                    lbl.grid(row=r, column=0, rowspan=num_rows, sticky='nsew')
 
-                def render_data_row(dr, label, vals, bg_color, is_bold=False):
-                    type_bg = final_bg if label in ('终', '即时', '滚球') else init_bg
-                    type_fg = '#ff6600' if label in ('即时', '滚球') else '#666666'
-                    lbl_type = tk.Label(table_container, text=label, font=font_bold,
-                                        fg=type_fg, bg=type_bg, width=4, height=1, relief='solid', bd=1, padx=2, pady=3)
-                    lbl_type.grid(row=dr, column=1, sticky='nsew')
+                    init_vals = get_vals(item, 'init')
+                    curr_vals = get_vals(item, 'curr')
+                    live_vals = get_vals(item, 'live')
 
-                    cell_bgs = [
-                        init_bg, init_bg, init_bg,
-                        eua_bg, eua_bg, eua_bg, eua_bg,
-                        bg_color, bg_color, bg_color, bg_color,
-                        goal_bg, goal_bg, goal_bg,
-                    ]
+                    def render_data_row(dr, label, vals, bg_color, is_bold=False):
+                        type_bg = final_bg if label in ('终', '即时', '滚球') else init_bg
+                        type_fg = '#ff6600' if label in ('即时', '滚球') else '#666666'
+                        lbl_type = tk.Label(table_container, text=label, font=font_bold,
+                                            fg=type_fg, bg=type_bg, width=4, height=1, relief='solid', bd=1, padx=2, pady=3)
+                        lbl_type.grid(row=dr, column=1, sticky='nsew')
 
-                    for i, text in enumerate(vals):
-                        display_text = text if text else ''
-                        is_handicap = i in (4, 9, 12)
-                        fg_c = '#cc3300' if is_handicap and display_text else '#0055cc'
-                        f = font_bold if is_handicap and display_text else font
-                        lbl = tk.Label(table_container, text=display_text, font=f,
-                                       fg=fg_c, bg=cell_bgs[i], width=col_widths[i + 2],
-                                       height=1, relief='solid', bd=1, padx=2, pady=3)
-                        lbl.grid(row=dr, column=i + 2, sticky='nsew')
+                        cell_bgs = [
+                            init_bg, init_bg, init_bg,
+                            eua_bg, eua_bg, eua_bg, eua_bg,
+                            bg_color, bg_color, bg_color, bg_color,
+                            goal_bg, goal_bg, goal_bg,
+                        ]
 
-                render_data_row(r, '初', init_vals, init_bg)
+                        for i, text in enumerate(vals):
+                            display_text = text if text else ''
+                            is_handicap = i in (4, 9, 12)
+                            fg_c = '#cc3300' if is_handicap and display_text else '#0055cc'
+                            f = font_bold if is_handicap and display_text else font
+                            lbl = tk.Label(table_container, text=display_text, font=f,
+                                           fg=fg_c, bg=cell_bgs[i], width=col_widths[i + 2],
+                                           height=1, relief='solid', bd=1, padx=2, pady=3)
+                            lbl.grid(row=dr, column=i + 2, sticky='nsew')
 
-                if has_final:
-                    render_data_row(r + 1, '终', live_vals, final_bg)
-                    render_data_row(r + 2, '滚球', live_vals, live_bg, is_bold=True)
-                else:
-                    label = '滚球' if has_live else '即时'
-                    data_vals = live_vals if has_live else curr_vals
-                    render_data_row(r + 1, label, data_vals, live_bg, is_bold=True)
+                    render_data_row(r, '初', init_vals, init_bg)
 
-                r += num_rows
+                    if has_final:
+                        render_data_row(r + 1, '终', live_vals, final_bg)
+                        render_data_row(r + 2, '滚球', live_vals, live_bg, is_bold=True)
+                    else:
+                        label = '滚球' if has_live else '即时'
+                        data_vals = live_vals if has_live else curr_vals
+                        render_data_row(r + 1, label, data_vals, live_bg, is_bold=True)
 
-            table_container.update_idletasks()
-            table_canvas.configure(scrollregion=table_canvas.bbox("all"),
-                                   height=table_container.winfo_reqheight())
+                    r += num_rows
+
+                # 只在最后更新一次canvas，减少重绘
+                def update_canvas():
+                    try:
+                        if table_canvas.winfo_exists():
+                            table_canvas.configure(scrollregion=table_canvas.bbox("all"),
+                                                   height=table_container.winfo_reqheight())
+                    except tk.TclError:
+                        pass
+                table_canvas.after_idle(update_canvas)
+            finally:
+                _pending_build[0] = False
 
         for var in company_vars.values():
-            var.trace_add('write', build_table)
+            var.trace_add('write', lambda *args: table_container.after_idle(build_table))
 
-        build_table()
+        table_container.after_idle(build_table)
 
         for c in range(16):
             table_container.grid_columnconfigure(c, weight=1)
@@ -798,27 +822,58 @@ class OddsTableDisplay:
         self.create_odds_table_web_style(title, headers, rows, col_widths)
 
     def _load_team_logo(self, parent, url, scale, bg_color, row=0, col=0):
+        logo_size = max(30, int(40 * scale))
+
+        placeholder = tk.Label(parent, text="\u26bd", font=('Microsoft YaHei', logo_size // 2),
+                              bg=bg_color, width=3, height=1)
+        placeholder.grid(row=row, column=col, padx=5, pady=5)
+
+        def load_async():
+            try:
+                from PIL import Image, ImageTk
+                import requests as req_lib
+
+                cache_dir = os.path.join(os.path.expanduser('~'), '.jc_temp', 'logos')
+                os.makedirs(cache_dir, exist_ok=True)
+                cache_file = os.path.join(cache_dir, hashlib.md5(url.encode()).hexdigest() + '.png')
+
+                if os.path.exists(cache_file):
+                    img = Image.open(cache_file)
+                else:
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': 'https://zq.titan007.com/',
+                    }
+                    resp = req_lib.get(url, headers=headers, timeout=5)
+                    if resp.status_code != 200:
+                        return
+                    img = Image.open(BytesIO(resp.content))
+                    try:
+                        img.save(cache_file)
+                    except Exception:
+                        pass
+
+                img = img.resize((logo_size, logo_size), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+
+                try:
+                    parent.after(0, lambda: self._update_logo(placeholder, photo, bg_color, row, col))
+                except tk.TclError:
+                    pass
+            except Exception as e:
+                print(f"加载队徽失败: {e}")
+
+        threading.Thread(target=load_async, daemon=True).start()
+
+    def _update_logo(self, placeholder, photo, bg_color, row, col):
         try:
-            import requests as req_lib
-            from PIL import Image, ImageTk
-            logo_size = max(30, int(40 * scale))
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://zq.titan007.com/',
-            }
-            resp = req_lib.get(url, headers=headers, timeout=5)
-            if resp.status_code != 200:
-                return False
-            img = Image.open(BytesIO(resp.content))
-            img = img.resize((logo_size, logo_size), Image.LANCZOS)
-            photo = ImageTk.PhotoImage(img)
-            lbl = tk.Label(parent, image=photo, bg=bg_color)
+            master = placeholder.master
+            placeholder.destroy()
+            lbl = tk.Label(master, image=photo, bg=bg_color)
             lbl.image = photo
             lbl.grid(row=row, column=col, padx=5, pady=5)
-            return True
-        except Exception as e:
-            print(f"加载队徽失败: {e}")
-            return False
+        except tk.TclError:
+            pass
 
     def create_info_card(self, match: Dict):
         """创建比赛信息卡片"""
@@ -1246,80 +1301,80 @@ class OddsTableDisplay:
         self.create_odds_table_web_style('让球盘口', headers, rows, col_widths)
 
     def create_full_display(self, match: Dict, analysis_data: Dict = None):
-        """创建完整的显示，包含即时走势三个选项"""
-        # 比赛信息卡
+        """创建完整的显示，分批渲染提升UI响应速度"""
+        # 第1批：立即显示关键信息（信息卡 + 即时赔率）
         self.create_info_card(match)
 
         if analysis_data:
-            # 即时走势比较（让球/大小球/欧洲指数）
             odds_trend = analysis_data.get('odds_trend', [])
             if odds_trend:
                 self.create_odds_trend_table(odds_trend)
 
-        # 即时赔率
         self.create_european_odds_table(match, analysis_data)
 
-        if analysis_data:
-            # 欧洲指数
-            euro_odds = analysis_data.get('european_odds', [])
-            if euro_odds:
-                self.create_company_odds_table('欧洲指数', euro_odds, 'european')
+        # 第2批：延迟显示公司赔率表格
+        def batch2():
+            if analysis_data:
+                euro_odds = analysis_data.get('european_odds', [])
+                if euro_odds:
+                    self.create_company_odds_table('欧洲指数', euro_odds, 'european')
 
-            # 亚洲盘口
-            asian_odds = analysis_data.get('asian_odds', [])
-            if asian_odds:
-                self.create_company_odds_table('亚洲盘口', asian_odds, 'asian')
+                asian_odds = analysis_data.get('asian_odds', [])
+                if asian_odds:
+                    self.create_company_odds_table('亚洲盘口', asian_odds, 'asian')
 
-            # 进球数
-            goal_odds = analysis_data.get('goal_odds', [])
-            if goal_odds:
-                self.create_company_odds_table('进球数', goal_odds, 'goal')
+                goal_odds = analysis_data.get('goal_odds', [])
+                if goal_odds:
+                    self.create_company_odds_table('进球数', goal_odds, 'goal')
 
-            standings = analysis_data.get('standings_data', {})
-            if standings.get('home_team') or standings.get('away_team'):
-                self._create_team_standings_section(standings)
-            else:
-                total_standings = standings.get('total', [])
-                home_standings = standings.get('home', [])
-                away_standings = standings.get('away', [])
-                if total_standings:
-                    self.create_standings_table('总积分榜', total_standings)
-                if home_standings:
-                    self.create_standings_table('主场积分榜', home_standings)
-                if away_standings:
-                    self.create_standings_table('客场积分榜', away_standings)
+                standings = analysis_data.get('standings_data', {})
+                if standings.get('home_team') or standings.get('away_team'):
+                    self._create_team_standings_section(standings)
+                else:
+                    total_standings = standings.get('total', [])
+                    home_standings = standings.get('home', [])
+                    away_standings = standings.get('away', [])
+                    if total_standings:
+                        self.create_standings_table('总积分榜', total_standings)
+                    if home_standings:
+                        self.create_standings_table('主场积分榜', home_standings)
+                    if away_standings:
+                        self.create_standings_table('客场积分榜', away_standings)
 
-            # 对赛往绩
-            h2h = analysis_data.get('h2h_records', [])
-            if h2h:
-                self.create_match_record_table('对赛往绩', h2h)
+        # 第3批：延迟显示统计数据（往绩、战绩等）
+        def batch3():
+            if analysis_data:
+                h2h = analysis_data.get('h2h_records', [])
+                if h2h:
+                    self.create_match_record_table('对赛往绩', h2h)
 
-            # 近期战绩
-            home_recent = analysis_data.get('home_recent', [])
-            away_recent = analysis_data.get('away_recent', [])
-            if home_recent:
-                self.create_match_record_table(f'{match.get("home_team", "主队")} 近期战绩', home_recent)
-            if away_recent:
-                self.create_match_record_table(f'{match.get("away_team", "客队")} 近期战绩', away_recent)
+                home_recent = analysis_data.get('home_recent', [])
+                away_recent = analysis_data.get('away_recent', [])
+                if home_recent:
+                    self.create_match_record_table(f'{match.get("home_team", "主队")} 近期战绩', home_recent)
+                if away_recent:
+                    self.create_match_record_table(f'{match.get("away_team", "客队")} 近期战绩', away_recent)
 
-            # 半全场统计
-            half_full = analysis_data.get('half_full_stats', {})
-            home_hf = half_full.get('home', [])
-            away_hf = half_full.get('away', [])
-            if home_hf or away_hf:
-                all_hf = home_hf + away_hf
-                if all_hf:
-                    self.create_stats_table('半全场统计', all_hf)
+                half_full = analysis_data.get('half_full_stats', {})
+                home_hf = half_full.get('home', [])
+                away_hf = half_full.get('away', [])
+                if home_hf or away_hf:
+                    all_hf = home_hf + away_hf
+                    if all_hf:
+                        self.create_stats_table('半全场统计', all_hf)
 
-            # 进球数统计
-            goal_stats = analysis_data.get('goal_stats', {})
-            home_goal = goal_stats.get('home', {})
-            away_goal = goal_stats.get('away', {})
-            if home_goal or away_goal:
-                all_goals = []
-                if home_goal:
-                    all_goals.append(home_goal)
-                if away_goal:
-                    all_goals.append(away_goal)
-                if all_goals:
-                    self.create_stats_table('进球数统计', all_goals)
+                goal_stats = analysis_data.get('goal_stats', {})
+                home_goal = goal_stats.get('home', {})
+                away_goal = goal_stats.get('away', {})
+                if home_goal or away_goal:
+                    all_goals = []
+                    if home_goal:
+                        all_goals.append(home_goal)
+                    if away_goal:
+                        all_goals.append(away_goal)
+                    if all_goals:
+                        self.create_stats_table('进球数统计', all_goals)
+
+        # 使用 after 分批执行，让UI有时间响应
+        self.parent.after(50, batch2)
+        self.parent.after(100, batch3)
