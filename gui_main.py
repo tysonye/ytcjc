@@ -1,992 +1,19 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import json
-import re
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Optional
 import threading
 import random
-import time
-from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
-from bs4 import BeautifulSoup
-from odds_display import OddsTableDisplay
 
-
-class DataCache:
-    def __init__(self, max_size=100, ttl=300):
-        self.cache = OrderedDict()
-        self.max_size = max_size
-        self.ttl = ttl
-
-    def get(self, key):
-        if key in self.cache:
-            data, timestamp = self.cache[key]
-            if time.time() - timestamp < self.ttl:
-                self.cache.move_to_end(key)
-                return data
-            else:
-                del self.cache[key]
-        return None
-
-    def set(self, key, data):
-        if key in self.cache:
-            self.cache.move_to_end(key)
-        self.cache[key] = (data, time.time())
-        if len(self.cache) > self.max_size:
-            self.cache.popitem(last=False)
-
-    def invalidate(self, key):
-        self.cache.pop(key, None)
-
-    def clear(self):
-        self.cache.clear()
-
-
-class MatchScraper:
-    """竞彩足球比赛数据爬虫"""
-
-    def __init__(self):
-        self.today_url = "https://jc.titan007.com/xml/bf_jc.txt"
-        self.history_url = "https://jc.titan007.com/handle/JcResult.aspx"
-        self.session = requests.Session()
-        retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503])
-        adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=20)
-        self.session.mount("https://", adapter)
-        self.session.mount("http://", adapter)
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Connection': 'keep-alive',
-        })
-        self.detail_cache = DataCache(max_size=50, ttl=120)
-        self.list_cache = DataCache(max_size=10, ttl=60)
-
-    def get_url_for_date(self, date_str: str) -> str:
-        """根据日期获取对应的URL"""
-        from datetime import datetime
-        today = datetime.now().strftime('%Y-%m-%d')
-        if date_str == today:
-            return self.today_url
-        else:
-            return f"{self.history_url}?d={date_str}"
-
-    def fetch_page(self, url: Optional[str] = None) -> Optional[str]:
-        """获取网页内容"""
-        try:
-            target_url = url or self.base_url
-            response = self.session.get(target_url, timeout=10)
-            if response.status_code == 200:
-                content = response.content.decode('utf-8')
-                return content
-            else:
-                return None
-        except Exception as e:
-            print(f"请求异常：{e}")
-            return None
-
-    def parse_matches(self, content: str) -> List[Dict]:
-        """解析比赛数据"""
-        matches = []
-
-        if not content or '$' not in content:
-            return matches
-
-        parts = content.split('$')
-
-        if len(parts) < 2:
-            return matches
-
-        league_data = parts[0]
-        match_data = parts[1] if len(parts) > 1 else ""
-
-        league_info = {}
-        league_entries = league_data.split('!')
-        for entry in league_entries:
-            if not entry.strip():
-                continue
-            if '^' in entry:
-                league_parts = entry.split('^')
-                if len(league_parts) >= 4:
-                    league_id = league_parts[0]
-                    league_name_raw = league_parts[3] if len(league_parts) > 3 else ""
-                    if ',' in league_name_raw:
-                        name_parts = league_name_raw.split(',')
-                        league_name = name_parts[1].strip() if len(name_parts) >= 2 else name_parts[0].strip()
-                    else:
-                        league_name = league_name_raw.strip()
-                    league_info[league_id] = league_name
-
-        match_entries = match_data.split('!')
-
-        for entry in match_entries:
-            if not entry.strip():
-                continue
-
-            fields = entry.split('^')
-
-            if len(fields) < 24:
-                continue
-
-            try:
-                match_id = fields[4] if len(fields) > 4 else ""
-
-                if not match_id or not re.match(r'周[一二三四五六日]\d{3}', match_id):
-                    continue
-
-                league_id = fields[5] if len(fields) > 5 else ""
-                league_name = league_info.get(league_id, "")
-
-                match_unique_id = fields[0] if len(fields) > 0 else ""
-                start_time_str = fields[1] if len(fields) > 1 else ""
-                update_time_str = fields[2] if len(fields) > 2 else ""
-                status_code = fields[3] if len(fields) > 3 else ""
-
-                home_team_id = fields[7] if len(fields) > 7 else ""
-                home_team_full = fields[8] if len(fields) > 8 else ""
-
-                away_team_id = fields[9] if len(fields) > 9 else ""
-                away_team_full = fields[10] if len(fields) > 10 else ""
-
-                home_full_score = fields[11] if len(fields) > 11 else ""
-                away_full_score = fields[12] if len(fields) > 12 else ""
-                home_jc_score = fields[13] if len(fields) > 13 else ""
-                away_jc_score = fields[14] if len(fields) > 14 else ""
-
-                red_yellow = fields[15] if len(fields) > 15 else ""
-                handicap = fields[22] if len(fields) > 22 else ""
-                other_flag = fields[23] if len(fields) > 23 else ""
-
-                home_team = ""
-                if ',' in home_team_full:
-                    home_team = home_team_full.split(',')[0].strip()
-                else:
-                    home_team = home_team_full.strip()
-
-                away_team = ""
-                if ',' in away_team_full:
-                    away_team = away_team_full.split(',')[0].strip()
-                else:
-                    away_team = away_team_full.strip()
-
-                match_time = ""
-                time_parts = start_time_str.split(',')
-                if len(time_parts) >= 5:
-                    match_time = f"{time_parts[3]}:{time_parts[4]}"
-
-                # 状态映射 - 基于球探网实际状态码
-                # 0=未开始, 1=上半场, 2=已完场, 3=下半场, -1=已完场
-                # 注意：网页上显示69',70',71'等时间时，状态码实际上是3（下半场进行中）
-                status_map = {
-                    '0': '未开始',
-                    '1': '上半场',
-                    '2': '中场',
-                    '3': '下半场',  # 状态码3实际表示下半场进行中
-                    '4': '加时',
-                    '-1': '已完场'
-                }
-                status_text = status_map.get(status_code, '未知')
-
-                score = f"{home_full_score}:{away_full_score}"
-                jc_score = f"{home_jc_score}:{away_jc_score}"
-
-                match_info = {
-                    'match_id': match_id.strip(),
-                    'match_unique_id': match_unique_id,
-                    'league': league_name,
-                    'league_id': league_id,
-                    'match_time': match_time,
-                    'start_time': start_time_str,
-                    'update_time': update_time_str,
-                    'status': status_text,
-                    'status_code': status_code,
-                    'home_team': home_team,
-                    'home_team_id': home_team_id,
-                    'home_team_full': home_team_full,
-                    'away_team': away_team,
-                    'away_team_id': away_team_id,
-                    'away_team_full': away_team_full,
-                    'score': score,
-                    'jc_score': jc_score,
-                    'home_score': home_full_score,
-                    'away_score': away_full_score,
-                    'home_jc_score': home_jc_score,
-                    'away_jc_score': away_jc_score,
-                    'handicap': handicap,
-                    'red_yellow': red_yellow,
-                    'other_flag': other_flag,
-                    'raw_data': fields
-                }
-
-                matches.append(match_info)
-
-            except Exception as e:
-                print(f"解析比赛失败：{e}")
-                continue
-
-        return matches
-
-    def fetch_web_time(self, match_unique_id: str) -> str:
-        """从网页获取服务器时间差 - 用于精确计算比赛时间"""
-        return ""
-
-    def get_all_matches(self, date_str: Optional[str] = None) -> List[Dict]:
-        """获取所有比赛数据"""
-        from datetime import datetime
-        if not date_str:
-            date_str = datetime.now().strftime('%Y-%m-%d')
-
-        url = self.get_url_for_date(date_str)
-        content = self.fetch_page(url)
-
-        if not content:
-            return []
-
-        matches = self.parse_matches(content)
-        return matches
-
-    def fetch_match_analysis(self, match: Dict, cancel_event=None) -> Dict:
-        match_unique_id = match.get('match_unique_id', '')
-        if not match_unique_id:
-            return {}
-
-        cache_key = f"detail_{match_unique_id}"
-        cached = self.detail_cache.get(cache_key)
-        if cached:
-            print(f"[缓存] 使用缓存数据: {match_unique_id}")
-            return cached
-
-        url = f"https://zq.titan007.com/analysis/{match_unique_id}.htm"
-        print(f"正在获取分析页面: {url}")
-
-        try:
-            response = self.session.get(url, timeout=8)
-            response.encoding = 'utf-8'
-
-            if cancel_event and cancel_event.is_set():
-                return {}
-
-            if response.status_code == 200:
-                analysis_data = self.parse_analysis_data(response.text)
-
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    future_odds = executor.submit(self.fetch_odds_trend, match_unique_id)
-                    future_jc = executor.submit(self.fetch_jc_odds, match_unique_id)
-
-                    try:
-                        odds_data = future_odds.result(timeout=8)
-                        if odds_data:
-                            analysis_data['odds_trend'] = odds_data
-                    except Exception as e:
-                        print(f"获取走势数据超时或失败: {e}")
-
-                    try:
-                        jc_odds = future_jc.result(timeout=8)
-                        if jc_odds:
-                            analysis_data['jc_odds'] = jc_odds
-                    except Exception as e:
-                        print(f"获取竞彩指数超时或失败: {e}")
-
-                self.detail_cache.set(cache_key, analysis_data)
-                return analysis_data
-        except Exception as e:
-            print(f"获取分析页面失败: {e}")
-
-        return {}
-
-    def fetch_odds_trend(self, schedule_id: str) -> List[Dict]:
-        try:
-            url = f"https://zq.titan007.com/analysis/odds/{schedule_id}.htm"
-            response = self.session.get(url, timeout=8)
-            if response.status_code != 200:
-                return []
-
-            content = response.content.decode('utf-8', errors='replace')
-            return self._parse_odds_trend(content)
-        except Exception as e:
-            print(f"获取走势数据失败: {e}")
-            return []
-
-    def fetch_jc_odds(self, schedule_id: str) -> Dict:
-        try:
-            url = f"https://zq.titan007.com/default/getAnalyData?sid={schedule_id}&t=1&r={int(__import__('time').time()*1000)}"
-            response = self.session.get(url, timeout=8)
-            if response.status_code != 200:
-                return {}
-            return self._parse_jc_odds(response.text)
-        except Exception as e:
-            print(f"获取竞彩指数失败: {e}")
-            return {}
-
-    def _parse_jc_odds(self, content: str) -> Dict:
-        try:
-            import json
-            obj = json.loads(content)
-            jc = obj.get('jcOdds', {})
-            if not jc:
-                return {}
-            result = {}
-            wl = jc.get('wlOdds', {})
-            if wl:
-                wl_live = wl.get('live', {})
-                wl_first = wl.get('first', {})
-                result['eu_init_home'] = wl_first.get('win', '')
-                result['eu_init_draw'] = wl_first.get('draw', '')
-                result['eu_init_away'] = wl_first.get('lose', '')
-                result['eu_curr_home'] = wl_live.get('win', '')
-                result['eu_curr_draw'] = wl_live.get('draw', '')
-                result['eu_curr_away'] = wl_live.get('lose', '')
-            sf = jc.get('sfOdds', {})
-            if sf:
-                sf_live = sf.get('live', {})
-                sf_first = sf.get('first', {})
-                result['asian_hcp'] = sf.get('rf', '')
-                result['asian_init_home'] = sf_first.get('win', '')
-                result['asian_init_draw'] = sf_first.get('draw', '')
-                result['asian_init_away'] = sf_first.get('lose', '')
-                result['asian_curr_home'] = sf_live.get('win', '')
-                result['asian_curr_draw'] = sf_live.get('draw', '')
-                result['asian_curr_away'] = sf_live.get('lose', '')
-            goal = jc.get('goalOdds', {})
-            if goal:
-                goal_live = goal.get('live', {})
-                goal_init = goal.get('init', {})
-                result['goal_init_g0'] = goal_init.get('g0', '')
-                result['goal_init_g1'] = goal_init.get('g1', '')
-                result['goal_init_g2'] = goal_init.get('g2', '')
-                result['goal_init_g3'] = goal_init.get('g3', '')
-                result['goal_init_g4'] = goal_init.get('g4', '')
-                result['goal_init_g5'] = goal_init.get('g5', '')
-                result['goal_init_g6'] = goal_init.get('g6', '')
-                result['goal_init_g7'] = goal_init.get('g7', '')
-                result['goal_curr_g0'] = goal_live.get('g0', '')
-                result['goal_curr_g1'] = goal_live.get('g1', '')
-                result['goal_curr_g2'] = goal_live.get('g2', '')
-                result['goal_curr_g3'] = goal_live.get('g3', '')
-                result['goal_curr_g4'] = goal_live.get('g4', '')
-                result['goal_curr_g5'] = goal_live.get('g5', '')
-                result['goal_curr_g6'] = goal_live.get('g6', '')
-                result['goal_curr_g7'] = goal_live.get('g7', '')
-            score = jc.get('scoreOdds', {})
-            if score:
-                score_live = score.get('live', {})
-                result['score_live'] = {
-                    '10': score_live.get('score10', ''),
-                    '20': score_live.get('score20', ''),
-                    '21': score_live.get('score21', ''),
-                    '30': score_live.get('score30', ''),
-                    '31': score_live.get('score31', ''),
-                    '32': score_live.get('score32', ''),
-                    '40': score_live.get('score40', ''),
-                    '41': score_live.get('score41', ''),
-                    '42': score_live.get('score42', ''),
-                    '50': score_live.get('score50', ''),
-                    '51': score_live.get('score51', ''),
-                    '52': score_live.get('score52', ''),
-                    'win_other': score_live.get('scoreWin', ''),
-                    '00': score_live.get('score00', ''),
-                    '11': score_live.get('score11', ''),
-                    '22': score_live.get('score22', ''),
-                    '33': score_live.get('score33', ''),
-                    'draw_other': score_live.get('scoreDraw', ''),
-                    '01': score_live.get('score01', ''),
-                    '02': score_live.get('score02', ''),
-                    '12': score_live.get('score12', ''),
-                    '03': score_live.get('score03', ''),
-                    '13': score_live.get('score13', ''),
-                    '23': score_live.get('score23', ''),
-                    '04': score_live.get('score04', ''),
-                    '14': score_live.get('score14', ''),
-                    '24': score_live.get('score24', ''),
-                    '05': score_live.get('score05', ''),
-                    '15': score_live.get('score15', ''),
-                    '25': score_live.get('score25', ''),
-                    'lose_other': score_live.get('scoreLose', ''),
-                }
-            hf = jc.get('hfOdds', {})
-            if hf:
-                hf_live = hf.get('live', {})
-                result['hf_live'] = {
-                    'ww': hf_live.get('hfww', ''),
-                    'wd': hf_live.get('hfwd', ''),
-                    'wl': hf_live.get('hfwl', ''),
-                    'dw': hf_live.get('hfdw', ''),
-                    'dd': hf_live.get('hfdd', ''),
-                    'dl': hf_live.get('hfdl', ''),
-                    'lw': hf_live.get('hflw', ''),
-                    'ld': hf_live.get('hfld', ''),
-                    'll': hf_live.get('hfll', ''),
-                }
-            return result
-        except Exception as e:
-            print(f"解析竞彩指数失败: {e}")
-            return {}
-
-    def _parse_odds_trend(self, content: str) -> List[Dict]:
-        """解析走势数据 - /analysis/odds/ 响应格式
-        格式: <input type='hidden' value='公司1数据^公司2数据...'>
-        每个公司: companyID;companyName;初盘;即时;滚球;状态
-        每组14值: 欧指(3)+欧转亚盘(4)+实际亚盘(4)+进球数(3)
-        """
-        results = []
-        value_match = re.search(r"value='([^']+)'", content)
-        if not value_match:
-            return results
-
-        raw_data = value_match.group(1)
-        company_entries = raw_data.split('^')
-
-        for entry in company_entries:
-            if not entry.strip():
-                continue
-            parts = entry.split(';')
-            if len(parts) < 5:
-                continue
-
-            company_id = parts[0]
-            company_name = parts[1]
-            init_str = parts[2].rstrip(',')
-            curr_str = parts[3].rstrip(',')
-            live_str = parts[4].rstrip(',') if len(parts) > 4 else ''
-
-            init_vals = init_str.split(',') if init_str else []
-            curr_vals = curr_str.split(',') if curr_str else []
-            live_vals = live_str.split(',') if live_str else []
-
-            def safe_get(arr, idx, default=''):
-                if idx < len(arr):
-                    v = arr[idx].strip()
-                    return v if v else default
-                return default
-
-            item = {
-                'company_id': company_id,
-                'company': company_name,
-                'eu_init_home': safe_get(init_vals, 0),
-                'eu_init_draw': safe_get(init_vals, 1),
-                'eu_init_away': safe_get(init_vals, 2),
-                'eua_init_home': safe_get(init_vals, 3),
-                'eua_init_handicap': safe_get(init_vals, 4),
-                'eua_init_away': safe_get(init_vals, 5),
-                'eua_init_total': safe_get(init_vals, 6),
-                'real_init_home': safe_get(init_vals, 7),
-                'real_init_handicap': safe_get(init_vals, 8),
-                'real_init_away': safe_get(init_vals, 9),
-                'real_init_total': safe_get(init_vals, 10),
-                'goal_init_big': safe_get(init_vals, 11),
-                'goal_init_line': safe_get(init_vals, 12),
-                'goal_init_small': safe_get(init_vals, 13),
-                'eu_curr_home': safe_get(curr_vals, 0),
-                'eu_curr_draw': safe_get(curr_vals, 1),
-                'eu_curr_away': safe_get(curr_vals, 2),
-                'eua_curr_home': safe_get(curr_vals, 3),
-                'eua_curr_handicap': safe_get(curr_vals, 4),
-                'eua_curr_away': safe_get(curr_vals, 5),
-                'eua_curr_total': safe_get(curr_vals, 6),
-                'real_curr_home': safe_get(curr_vals, 7),
-                'real_curr_handicap': safe_get(curr_vals, 8),
-                'real_curr_away': safe_get(curr_vals, 9),
-                'real_curr_total': safe_get(curr_vals, 10),
-                'goal_curr_big': safe_get(curr_vals, 11),
-                'goal_curr_line': safe_get(curr_vals, 12),
-                'goal_curr_small': safe_get(curr_vals, 13),
-                'eu_live_home': safe_get(live_vals, 0),
-                'eu_live_draw': safe_get(live_vals, 1),
-                'eu_live_away': safe_get(live_vals, 2),
-                'eua_live_home': safe_get(live_vals, 3),
-                'eua_live_handicap': safe_get(live_vals, 4),
-                'eua_live_away': safe_get(live_vals, 5),
-                'eua_live_total': safe_get(live_vals, 6),
-                'real_live_home': safe_get(live_vals, 7),
-                'real_live_handicap': safe_get(live_vals, 8),
-                'real_live_away': safe_get(live_vals, 9),
-                'real_live_total': safe_get(live_vals, 10),
-                'goal_live_big': safe_get(live_vals, 11),
-                'goal_live_line': safe_get(live_vals, 12),
-                'goal_live_small': safe_get(live_vals, 13),
-            }
-            results.append(item)
-
-        print(f"解析走势数据: {len(results)} 个公司")
-        return results
-
-    def parse_analysis_data(self, html: str) -> Dict:
-        """解析分析页面数据 - 增强版"""
-        soup = BeautifulSoup(html, 'html.parser')
-
-        analysis_data = {
-            'european_odds': [],
-            'asian_odds': [],
-            'goal_odds': [],
-            'trend_data': [],
-            'league_standings': {'home': [], 'away': []},
-            'h2h_records': [],
-            'home_recent': [],
-            'away_recent': [],
-            'half_full_stats': {'home': {}, 'away': {}},
-            'goal_stats': {'home': {}, 'away': {}},
-            'match_info': {},
-            'instant_eu_odds': {}
-        }
-
-        self._parse_vs_eodds(html, analysis_data)
-
-        self._parse_venue_weather(html, analysis_data)
-
-        self._parse_standings_js(soup, html, analysis_data)
-
-        # 解析对赛往绩
-        self._parse_h2h_records(soup, analysis_data)
-
-        # 解析近期战绩
-        self._parse_recent_form(soup, analysis_data)
-
-        # 解析半全场统计
-        self._parse_half_full_stats(soup, analysis_data)
-
-        # 解析进球数统计
-        self._parse_goal_stats(soup, analysis_data)
-
-        # 解析赔率表格
-        self._parse_odds_tables(soup, analysis_data)
-
-        # 解析即时走势数据
-        self._parse_trend_data(soup, analysis_data)
-
-        return analysis_data
-
-    def _parse_vs_eodds(self, html: str, analysis_data: Dict):
-        """从分析页面提取Vs_eOdds即时欧指数据"""
-        try:
-            import json
-            e_match = re.search(r'var\s+Vs_eOdds\s*=\s*(\[.+?\]);', html, re.DOTALL)
-            if not e_match:
-                return
-            e_odds = json.loads(e_match.group(1).replace("'", '"'))
-            company_names = {3: 'Crow*', 1: '澳*', 8: '36*', 12: '易胜*', 4: '立*', 18: '12*', 115: '威廉希*', 281: '36*', 80: '澳*'}
-            priority = [3, 1, 8, 12, 4, 18, 115, 281, 80]
-            for cid in priority:
-                for item in e_odds:
-                    if len(item) >= 8 and item[1] == cid:
-                        analysis_data['instant_eu_odds'] = {
-                            'company': company_names.get(cid, str(cid)),
-                            'init_home': item[2],
-                            'init_draw': item[3],
-                            'init_away': item[4],
-                            'curr_home': item[5],
-                            'curr_draw': item[6],
-                            'curr_away': item[7],
-                        }
-                        return
-        except Exception as e:
-            print(f"解析Vs_eOdds失败: {e}")
-
-    def _parse_venue_weather(self, html: str, analysis_data: Dict):
-        try:
-            place_match = re.search(r"class=['\"]place['\"][^>]*>(.*?)</a>", html)
-            if place_match:
-                place_text = place_match.group(1)
-                venue = re.sub(r'^.*?[：:]', '', place_text).strip()
-                if venue:
-                    analysis_data['venue'] = venue
-
-            full_row = re.search(r"class=['\"]place['\"].*?</div>", html, re.DOTALL)
-            if full_row:
-                row_text = re.sub(r'<[^>]+>', '', full_row.group(0))
-                row_text = row_text.replace('&nbsp;', ' ')
-
-                weather_match = re.search(r'天氣[：:]\s*(\S+)', row_text)
-                if weather_match:
-                    analysis_data['weather'] = weather_match.group(1)
-
-                temp_match = re.search(r'溫度[：:]\s*(\S+)', row_text)
-                if temp_match:
-                    analysis_data['temperature'] = temp_match.group(1)
-
-            img_matches = re.findall(r'<img[^>]*src="([^"]*image/team[^"]*)"[^>]*alt="([^"]*)"', html)
-            if len(img_matches) >= 2:
-                analysis_data['home_logo'] = 'https:' + img_matches[0][0] if img_matches[0][0].startswith('//') else img_matches[0][0]
-                analysis_data['away_logo'] = 'https:' + img_matches[1][0] if img_matches[1][0].startswith('//') else img_matches[1][0]
-
-            lname_match = re.search(r"class=['\"]LName['\"][^>]*>(.*?)</a>", html)
-            if lname_match:
-                analysis_data['league_round'] = lname_match.group(1).strip()
-
-            date_row = re.search(r"class=['\"]LName['\"].*?</div>", html, re.DOTALL)
-            if date_row:
-                date_text = re.sub(r'<[^>]+>', '', date_row.group(0))
-                date_text = date_text.replace('&nbsp;', ' ').strip()
-                date_match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(\d{1,2}:\d{2})\s*(\S+)', date_text)
-                if date_match:
-                    analysis_data['match_date'] = date_match.group(1)
-                    analysis_data['match_day'] = date_match.group(3)
-        except Exception as e:
-            print(f"解析场地天气失败: {e}")
-
-    def _parse_standings_js(self, soup, html: str, analysis_data: Dict):
-        try:
-            porlet_5 = soup.find('div', id='porlet_5')
-            if porlet_5:
-                standings = self._parse_porlet5_tables(porlet_5)
-                if standings:
-                    analysis_data['standings_data'] = standings
-                    return
-            standings = self._parse_standings_js_vars(html)
-            if standings:
-                analysis_data['standings_data'] = standings
-        except Exception as e:
-            print(f"解析赛前积分榜失败: {e}")
-
-    def _parse_porlet5_tables(self, porlet_5) -> Dict:
-        try:
-            result = {'home_team': None, 'away_team': None}
-            outer_table = porlet_5.find('table')
-            if not outer_table:
-                return None
-            tr = outer_table.find('tr')
-            if not tr:
-                return None
-            tds = tr.find_all('td', recursive=False)
-            if len(tds) < 2:
-                return None
-            for idx, td in enumerate(tds):
-                team_key = 'home_team' if idx == 0 else 'away_team'
-                nested_table = td.find('table')
-                if not nested_table:
-                    continue
-                team_data = self._parse_team_standings_table(nested_table)
-                if team_data:
-                    result[team_key] = team_data
-            if result['home_team'] or result['away_team']:
-                return result
-            return None
-        except Exception as e:
-            print(f"解析porlet_5表格失败: {e}")
-            return None
-
-    def _parse_team_standings_table(self, table) -> Dict:
-        try:
-            rows = table.find_all('tr')
-            if len(rows) < 3:
-                return None
-            first_row = rows[0]
-            name_text = first_row.get_text(strip=True)
-            name_match = re.search(r'\]([^\]]+)$', name_text)
-            team_name = name_match.group(1).strip() if name_match else name_text
-            result = {'name': team_name}
-            type_map = {'總': 'total', '总': 'total', '主': 'home', '客': 'away'}
-            for row in rows[2:]:
-                cells = row.find_all(['td'])
-                if len(cells) < 10:
-                    continue
-                cell_texts = [c.get_text(strip=True) for c in cells]
-                row_type = cell_texts[0]
-                mapped_type = type_map.get(row_type)
-                if not mapped_type:
-                    continue
-                result[mapped_type] = {
-                    'played': cell_texts[1] if len(cell_texts) > 1 else '',
-                    'won': cell_texts[2] if len(cell_texts) > 2 else '',
-                    'drawn': cell_texts[3] if len(cell_texts) > 3 else '',
-                    'lost': cell_texts[4] if len(cell_texts) > 4 else '',
-                    'gf': cell_texts[5] if len(cell_texts) > 5 else '',
-                    'ga': cell_texts[6] if len(cell_texts) > 6 else '',
-                    'gd': cell_texts[7] if len(cell_texts) > 7 else '',
-                    'points': cell_texts[8] if len(cell_texts) > 8 else '',
-                    'rank': cell_texts[9] if len(cell_texts) > 9 else '',
-                    'win_rate': cell_texts[10] if len(cell_texts) > 10 else '',
-                }
-            return result if len(result) > 1 else None
-        except Exception as e:
-            print(f"解析球队积分表失败: {e}")
-            return None
-
-    def _parse_standings_js_vars(self, html: str) -> Dict:
-        try:
-            result = {'total': [], 'home': [], 'away': [], 'format': 'league'}
-            for var_name, key in [('totalScoreStr', 'total'), ('homeScoreStr', 'home'), ('guestScoreStr', 'away')]:
-                m = re.search(rf'var\s+{var_name}\s*=\s*(\[.+?\]);', html, re.DOTALL)
-                if not m:
-                    continue
-                try:
-                    data = json.loads(m.group(1))
-                    for item in data:
-                        if key == 'total' and len(item) >= 5:
-                            result[key].append({
-                                'rank': str(item[1]),
-                                'team': str(item[3]),
-                                'points': str(item[4]),
-                            })
-                        elif len(item) >= 4:
-                            result[key].append({
-                                'rank': str(item[0]),
-                                'team': str(item[2]),
-                                'points': str(item[3]),
-                            })
-                except Exception as e:
-                    print(f"解析{var_name}失败: {e}")
-            has_data = any(result[k] for k in ['total', 'home', 'away'])
-            return result if has_data else None
-        except Exception as e:
-            print(f"解析积分JS变量失败: {e}")
-            return None
-
-    def _parse_h2h_records(self, soup, analysis_data):
-        """解析对赛往绩"""
-        try:
-            # 查找对赛往绩表格
-            tables = soup.find_all('table')
-            for table in tables:
-                text = table.get_text()
-                if '对赛往绩' in text or ('日期' in text and '赛事' in text and '主队' in text):
-                    rows = table.find_all('tr')
-                    if len(rows) >= 2:
-                        for row in rows[1:]:
-                            cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 7:
-                                analysis_data['h2h_records'].append({
-                                    'date': cells[0].get_text(strip=True),
-                                    'league': cells[1].get_text(strip=True),
-                                    'home_team': cells[2].get_text(strip=True),
-                                    'score': cells[3].get_text(strip=True),
-                                    'away_team': cells[4].get_text(strip=True),
-                                    'handicap': cells[5].get_text(strip=True),
-                                    'result': cells[6].get_text(strip=True)
-                                })
-        except Exception as e:
-            print(f"解析对赛往绩失败: {e}")
-
-    def _parse_recent_form(self, soup, analysis_data):
-        """解析近期战绩"""
-        try:
-            tables = soup.find_all('table')
-            for table in tables:
-                text = table.get_text()
-                if '近期战绩' in text or ('日期' in text and '比分' in text):
-                    rows = table.find_all('tr')
-                    if len(rows) >= 2:
-                        for row in rows[1:]:
-                            cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 7:
-                                record = {
-                                    'date': cells[0].get_text(strip=True),
-                                    'league': cells[1].get_text(strip=True),
-                                    'home_team': cells[2].get_text(strip=True),
-                                    'score': cells[3].get_text(strip=True),
-                                    'away_team': cells[4].get_text(strip=True),
-                                    'handicap': cells[5].get_text(strip=True),
-                                    'result': cells[6].get_text(strip=True)
-                                }
-                                # 简单区分主客队近期战绩
-                                if len(analysis_data['home_recent']) <= len(analysis_data['away_recent']):
-                                    analysis_data['home_recent'].append(record)
-                                else:
-                                    analysis_data['away_recent'].append(record)
-        except Exception as e:
-            print(f"解析近期战绩失败: {e}")
-
-    def _parse_half_full_stats(self, soup, analysis_data):
-        """解析半全场统计"""
-        try:
-            tables = soup.find_all('table')
-            for table in tables:
-                text = table.get_text()
-                if '半全场' in text or ('半场' in text and '赛' in text and '胜' in text):
-                    rows = table.find_all('tr')
-                    if len(rows) >= 3:
-                        stats = []
-                        for row in rows[1:]:
-                            cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 9:
-                                stats.append({
-                                    'type': cells[0].get_text(strip=True),
-                                    'played': cells[1].get_text(strip=True),
-                                    'won': cells[2].get_text(strip=True),
-                                    'drawn': cells[3].get_text(strip=True),
-                                    'lost': cells[4].get_text(strip=True),
-                                    'gf': cells[5].get_text(strip=True),
-                                    'ga': cells[6].get_text(strip=True),
-                                    'gd': cells[7].get_text(strip=True),
-                                    'win_rate': cells[8].get_text(strip=True)
-                                })
-                        if stats:
-                            analysis_data['half_full_stats']['home'] = stats[:3]
-                            analysis_data['half_full_stats']['away'] = stats[3:6]
-        except Exception as e:
-            print(f"解析半全场统计失败: {e}")
-
-    def _parse_goal_stats(self, soup, analysis_data):
-        """解析进球数统计"""
-        try:
-            tables = soup.find_all('table')
-            for table in tables:
-                text = table.get_text()
-                if '进球数' in text or ('0球' in text and '1球' in text):
-                    rows = table.find_all('tr')
-                    if len(rows) >= 2:
-                        for row in rows[1:]:
-                            cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 9:
-                                data = {
-                                    'type': cells[0].get_text(strip=True),
-                                    '0': cells[1].get_text(strip=True),
-                                    '1': cells[2].get_text(strip=True),
-                                    '2': cells[3].get_text(strip=True),
-                                    '3': cells[4].get_text(strip=True),
-                                    '4': cells[5].get_text(strip=True),
-                                    '5': cells[6].get_text(strip=True),
-                                    '6': cells[7].get_text(strip=True),
-                                    '7+': cells[8].get_text(strip=True)
-                                }
-                                if 'home' not in analysis_data['goal_stats'] or not analysis_data['goal_stats'].get('home'):
-                                    analysis_data['goal_stats']['home'] = data
-                                else:
-                                    analysis_data['goal_stats']['away'] = data
-        except Exception as e:
-            print(f"解析进球数统计失败: {e}")
-
-    def _parse_odds_tables(self, soup, analysis_data):
-        """解析赔率表格"""
-        tables = soup.find_all('table')
-
-        for table in tables:
-            rows = table.find_all('tr')
-            if len(rows) > 3:
-                first_row = rows[0]
-                headers = [th.get_text(strip=True) for th in first_row.find_all(['th', 'td'])]
-                header_text = ' '.join(headers)
-
-                # 欧洲指数
-                if any(k in header_text for k in ['勝', '平', '負', '主胜', '平局', '客胜']):
-                    for row in rows[1:]:
-                        cells = row.find_all(['td', 'th'])
-                        if len(cells) >= 6:
-                            company = cells[0].get_text(strip=True)
-                            if company:
-                                analysis_data['european_odds'].append({
-                                    'company': company,
-                                    'home_init': cells[1].get_text(strip=True),
-                                    'draw_init': cells[2].get_text(strip=True),
-                                    'away_init': cells[3].get_text(strip=True),
-                                    'home_curr': cells[4].get_text(strip=True) if len(cells) > 4 else '',
-                                    'draw_curr': cells[5].get_text(strip=True) if len(cells) > 5 else '',
-                                    'away_curr': cells[6].get_text(strip=True) if len(cells) > 6 else ''
-                                })
-
-                # 亚洲盘口
-                elif any(k in header_text for k in ['亞', '讓', '让球', '盘口']):
-                    for row in rows[1:]:
-                        cells = row.find_all(['td', 'th'])
-                        if len(cells) >= 6:
-                            company = cells[0].get_text(strip=True)
-                            if company:
-                                analysis_data['asian_odds'].append({
-                                    'company': company,
-                                    'home_init': cells[1].get_text(strip=True),
-                                    'handicap_init': cells[2].get_text(strip=True),
-                                    'away_init': cells[3].get_text(strip=True),
-                                    'home_curr': cells[4].get_text(strip=True) if len(cells) > 4 else '',
-                                    'handicap_curr': cells[5].get_text(strip=True) if len(cells) > 5 else '',
-                                    'away_curr': cells[6].get_text(strip=True) if len(cells) > 6 else ''
-                                })
-
-                # 进球数
-                elif any(k in header_text for k in ['大', '小', '进球数']):
-                    for row in rows[1:]:
-                        cells = row.find_all(['td', 'th'])
-                        if len(cells) >= 6:
-                            company = cells[0].get_text(strip=True)
-                            if company:
-                                analysis_data['goal_odds'].append({
-                                    'company': company,
-                                    'goal_init': cells[1].get_text(strip=True),
-                                    'big_init': cells[2].get_text(strip=True),
-                                    'small_init': cells[3].get_text(strip=True),
-                                    'goal_curr': cells[4].get_text(strip=True) if len(cells) > 4 else '',
-                                    'big_curr': cells[5].get_text(strip=True) if len(cells) > 5 else '',
-                                    'small_curr': cells[6].get_text(strip=True) if len(cells) > 6 else ''
-                                })
-
-    def _parse_trend_data(self, soup, analysis_data):
-        """解析即时走势数据 - 包含让球/大小球/欧洲指数"""
-        try:
-            # 查找包含即时走势的表格
-            tables = soup.find_all('table')
-            for table in tables:
-                text = table.get_text()
-                # 检测即时走势表格特征 - 必须有时间和让球/大小球/欧指相关列
-                if '时间' in text and ('亚' in text or '让' in text or '大' in text or '欧' in text):
-                    rows = table.find_all('tr')
-                    print(f"找到即时走势表格，共 {len(rows)} 行")
-                    if len(rows) >= 2:
-                        # 跳过表头行(通常是前两行合并表头)
-                        data_start = 2 if len(rows) > 2 and '时间' in rows[0].get_text() else 1
-                        for row in rows[data_start:]:
-                            cells = row.find_all(['td', 'th'])
-                            print(f"行数据: {len(cells)} 个单元格")
-                            if len(cells) >= 5:
-                                # 根据实际网页结构解析
-                                # 时间列可能有rowspan，需要处理
-                                cell_texts = [c.get_text(strip=True) for c in cells]
-                                print(f"单元格内容: {cell_texts}")
-                                
-                                # 基础数据
-                                trend_item = {
-                                    'time': cell_texts[0] if len(cell_texts) > 0 else '',
-                                    'score': cell_texts[1] if len(cell_texts) > 1 else '',
-                                    'half_full': cell_texts[2] if len(cell_texts) > 2 else '',
-                                }
-                                
-                                # 让球数据 - 根据实际列数动态解析
-                                idx = 3
-                                if len(cell_texts) > idx:
-                                    trend_item['asian_home_init'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['asian_handicap_init'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['asian_away_init'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['asian_home_curr'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['asian_handicap_curr'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['asian_away_curr'] = cell_texts[idx]; idx += 1
-                                
-                                # 进球数数据
-                                if len(cell_texts) > idx:
-                                    trend_item['goal_big_init'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['goal_handicap_init'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['goal_small_init'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['goal_big_curr'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['goal_handicap_curr'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['goal_small_curr'] = cell_texts[idx]; idx += 1
-                                
-                                # 欧洲指数
-                                if len(cell_texts) > idx:
-                                    trend_item['euro_home'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['euro_draw'] = cell_texts[idx]; idx += 1
-                                if len(cell_texts) > idx:
-                                    trend_item['euro_away'] = cell_texts[idx]
-                                
-                                analysis_data['trend_data'].append(trend_item)
-                                print(f"添加走势数据: {trend_item}")
-        except Exception as e:
-            print(f"解析即时走势数据失败: {e}")
-            import traceback
-            traceback.print_exc()
+from modules.scraper import MatchScraper
+from modules.match_list import MatchListPanel
+from modules.match_info import MatchInfoPanel
+from modules.standings import StandingsPanel
+from modules.odds_trend import OddsTrendPanel
+from modules.jc_index import JCIndexPanel
 
 
 class MatchDisplayApp:
-    """比赛数据大屏展示应用"""
 
     def __init__(self, root):
         self.root = root
@@ -999,36 +26,33 @@ class MatchDisplayApp:
         window_height = int(min(900 * self.scale, screen_height * 0.9))
         self.root.geometry(f"{window_width}x{window_height}")
         self.root.configure(bg='#1a1a2e')
-        self.root.bind('<Configure>', self.on_resize)
+        self.root.bind('<Configure>', self._on_resize)
 
         self.matches = []
-        self.filtered_matches = []
         self.scraper = MatchScraper()
         self.auto_refresh_after_id = None
+        self._current_load_event = None
+        self._current_detail_match_id = ''
+        self._current_analysis_data = None
 
-        self.setup_ui()
-        self.refresh_data()
-        self.start_auto_refresh()
+        self._setup_ui()
+        self._refresh_data()
+        self._start_auto_refresh()
 
-    def on_resize(self, event):
+    def _on_resize(self, event):
         if event.widget == self.root:
             new_scale = min(event.width / 1920, event.height / 1080)
             self.scale = max(0.5, new_scale)
-            self.update_layout()
 
-    def update_layout(self):
-        pass
-
-    def get_font(self, base_size, weight='normal'):
+    def _get_font(self, base_size, weight='normal'):
         size = max(8, int(base_size * self.scale))
         return ('Microsoft YaHei', size, weight)
 
-    def get_pad(self, base_pad):
+    def _get_pad(self, base_pad):
         return max(2, int(base_pad * self.scale))
 
-    def setup_ui(self):
-        """设置 UI 界面"""
-        pad = self.get_pad(10)
+    def _setup_ui(self):
+        pad = self._get_pad(10)
         title_height = int(80 * self.scale)
 
         title_frame = tk.Frame(self.root, bg='#16213e', height=title_height)
@@ -1053,191 +77,89 @@ class MatchDisplayApp:
             bg='#16213e'
         )
         self.time_label.pack()
-        self.update_time()
+        self._update_time()
 
-        # 控制按钮区域
-        control_frame = tk.Frame(self.root, bg='#1a1a2e')
-        control_frame.pack(fill=tk.X, padx=pad, pady=pad)
+        main_frame = tk.Frame(self.root, bg='#1a1a2e')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=pad, pady=pad)
 
-        btn_font_size = max(8, int(12 * self.scale))
-        refresh_btn = tk.Button(
-            control_frame,
-            text="刷新数据",
-            command=self.refresh_data,
-            font=('Microsoft YaHei', btn_font_size, 'bold'),
-            bg='#0f3460',
-            fg='#ffffff',
-            relief=tk.FLAT,
-            cursor='hand2',
-            padx=int(20*self.scale),
-            pady=int(10*self.scale)
-        )
-        refresh_btn.pack(side=tk.LEFT, padx=self.get_pad(5))
+        left_width = int(350 * self.scale)
 
-        label_font_size = max(8, int(12 * self.scale))
-        tk.Label(
-            control_frame,
-            text="日期选择:",
-            font=('Microsoft YaHei', label_font_size),
-            fg='#ffffff',
-            bg='#1a1a2e'
-        ).pack(side=tk.LEFT, padx=self.get_pad(10))
+        left_frame = tk.Frame(main_frame, bg='#16213e', width=left_width)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+        left_frame.pack_propagate(False)
 
-        # 生成往前7天的日期列表（包含今天）
-        from datetime import datetime, timedelta
-        today = datetime.now()
-        date_list = [(today + timedelta(days=-i)).strftime('%Y-%m-%d') for i in range(7)]
-        self.date_var = tk.StringVar(value=today.strftime('%Y-%m-%d'))
-        combo_font_size = max(8, int(11 * self.scale))
-        self.date_combo = ttk.Combobox(
-            control_frame,
-            textvariable=self.date_var,
-            state="readonly",
-            width=12,
-            font=('Microsoft YaHei', combo_font_size),
-            values=date_list
-        )
-        self.date_combo.pack(side=tk.LEFT, padx=self.get_pad(5))
-        self.date_combo.bind('<<ComboboxSelected>>', self.on_date_selected)
-
-        tk.Label(
-            control_frame,
-            text="联赛筛选:",
-            font=('Microsoft YaHei', label_font_size),
-            fg='#ffffff',
-            bg='#1a1a2e'
-        ).pack(side=tk.LEFT, padx=self.get_pad(10))
-
-        self.league_var = tk.StringVar(value="全部")
-        combo_font_size = max(8, int(11 * self.scale))
-        self.league_combo = ttk.Combobox(
-            control_frame,
-            textvariable=self.league_var,
-            state="readonly",
-            width=15,
-            font=('Microsoft YaHei', combo_font_size)
-        )
-        self.league_combo.pack(side=tk.LEFT, padx=self.get_pad(5))
-        self.league_combo.bind('<<ComboboxSelected>>', self.filter_matches)
-
-        tk.Label(
-            control_frame,
-            text="状态筛选:",
-            font=('Microsoft YaHei', label_font_size),
-            fg='#ffffff',
-            bg='#1a1a2e'
-        ).pack(side=tk.LEFT, padx=self.get_pad(10))
-
-        self.status_var = tk.StringVar(value="全部")
-        self.status_combo = ttk.Combobox(
-            control_frame,
-            textvariable=self.status_var,
-            state="readonly",
-            width=10,
-            font=('Microsoft YaHei', combo_font_size),
-            values=["全部", "未开始", "上半场", "中场", "下半场", "已完场"]
-        )
-        self.status_combo.set("全部")
-        self.status_combo.pack(side=tk.LEFT, padx=self.get_pad(5))
-        self.status_combo.bind('<<ComboboxSelected>>', self.filter_matches)
-
-        self.stats_label = tk.Label(
-            control_frame,
-            text="总场次：0",
-            font=('Microsoft YaHei', btn_font_size, 'bold'),
-            fg='#00ff88',
-            bg='#1a1a2e'
-        )
-        self.stats_label.pack(side=tk.RIGHT, padx=self.get_pad(20))
-
-        # 主内容区域
-        main_paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg='#1a1a2e')
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=pad, pady=pad)
-
-        left_width = int(300 * self.scale)
-        left_frame = tk.Frame(main_paned, bg='#16213e')
-        main_paned.add(left_frame, width=left_width)
-
-        list_title_font_size = max(10, int(16 * self.scale))
-        list_title = tk.Label(
+        self.match_list_panel = MatchListPanel(
             left_frame,
-            text="比赛列表",
-            font=('Microsoft YaHei', list_title_font_size, 'bold'),
-            fg='#e94560',
-            bg='#16213e'
-        )
-        list_title.pack(pady=self.get_pad(10))
-
-        # 比赛列表滚动区域
-        list_canvas_frame = tk.Frame(left_frame, bg='#16213e')
-        list_canvas_frame.pack(fill=tk.BOTH, expand=True, padx=self.get_pad(10), pady=self.get_pad(10))
-
-        self.list_canvas = tk.Canvas(
-            list_canvas_frame,
-            bg='#16213e',
-            highlightthickness=0
-        )
-        scrollbar = ttk.Scrollbar(
-            list_canvas_frame,
-            orient="vertical",
-            command=self.list_canvas.yview
+            scale=self.scale,
+            on_match_selected=self._on_match_selected,
+            on_refresh=lambda: self._refresh_data(date_str=self.match_list_panel.get_date())
         )
 
-        self.matches_list_frame = tk.Frame(
-            self.list_canvas,
-            bg='#16213e'
-        )
+        right_frame = tk.Frame(main_frame, bg='#0f3460')
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        # 窗口ID，用于后续操作
-        self.list_window_id = None
+        match_info_frame = tk.Frame(right_frame, bg='#f5f5f5')
+        match_info_frame.pack(fill=tk.X, padx=self._get_pad(5), pady=self._get_pad(5))
+        self.match_info_panel = MatchInfoPanel(match_info_frame, scale=self.scale)
 
-        def on_canvas_config(event):
-            # 当 canvas 大小改变时，更新内部 frame 宽度
-            if self.list_window_id:
-                self.list_canvas.itemconfig(self.list_window_id, width=event.width)
-            # 更新滚动区域
-            self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
+        style = ttk.Style()
+        style.configure('Detail.TNotebook', background='#0f3460')
+        style.configure('Detail.TNotebook.Tab', font=('Microsoft YaHei', max(9, int(11*self.scale)), 'bold'),
+                        padding=[int(15*self.scale), int(8*self.scale)])
 
-        def on_frame_config(event):
-            # 更新滚动区域
-            self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
+        self.notebook = ttk.Notebook(right_frame, style='Detail.TNotebook')
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=self._get_pad(10), pady=self._get_pad(5))
 
-        self.list_canvas.bind("<Configure>", on_canvas_config)
-        self.matches_list_frame.bind("<Configure>", on_frame_config)
+        tab1_frame = tk.Frame(self.notebook, bg='#f5f5f5')
+        self.notebook.add(tab1_frame, text='赛前积分榜')
+        self.standings_panel = StandingsPanel(tab1_frame, scale=self.scale)
 
-        # 创建窗口
-        self.list_window_id = self.list_canvas.create_window((0, 0), window=self.matches_list_frame, anchor="nw")
-        self.list_canvas.configure(yscrollcommand=scrollbar.set)
+        tab2_frame = tk.Frame(self.notebook, bg='#f5f5f5')
+        self.notebook.add(tab2_frame, text='即时走势')
+        self.odds_trend_panel = OddsTrendPanel(tab2_frame, scale=self.scale)
 
-        self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        tab3_frame = tk.Frame(self.notebook, bg='#f5f5f5')
+        self.notebook.add(tab3_frame, text='竞彩指数')
+        self.jc_index_panel = JCIndexPanel(tab3_frame, scale=self.scale)
 
-        # 全局鼠标滚轮绑定 - 根据鼠标位置自动判断滚动哪个区域
+        self._bind_mousewheel()
+
+    def _bind_mousewheel(self):
         def on_global_mousewheel(event):
-            # 获取鼠标在屏幕上的位置
             x = event.x_root
             y = event.y_root
 
-            # 检查鼠标是否在详情区域上方
             try:
-                if self.detail_frame.winfo_exists():
-                    dx = self.detail_frame.winfo_rootx()
-                    dy = self.detail_frame.winfo_rooty()
-                    dw = self.detail_frame.winfo_width()
-                    dh = self.detail_frame.winfo_height()
-                    if dx <= x <= dx + dw and dy <= y <= dy + dh:
-                        # 鼠标在详情区域，查找详情canvas
-                        for widget in self.detail_frame.winfo_children():
-                            if isinstance(widget, tk.Canvas) and widget.winfo_exists():
-                                self._on_mousewheel(event, widget)
-                                return
+                list_canvas = self.match_list_panel.get_list_canvas()
+                if list_canvas and list_canvas.winfo_exists():
+                    lx = list_canvas.winfo_rootx()
+                    ly = list_canvas.winfo_rooty()
+                    lw = list_canvas.winfo_width()
+                    lh = list_canvas.winfo_height()
+                    if lx <= x <= lx + lw and ly <= y <= ly + lh:
+                        self._on_mousewheel(event, list_canvas)
+                        return
             except tk.TclError:
                 pass
 
-            # 默认滚动左边列表
             try:
-                if self.list_canvas.winfo_exists():
-                    self._on_mousewheel(event, self.list_canvas)
+                nb = self.notebook
+                if nb and nb.winfo_exists():
+                    nx = nb.winfo_rootx()
+                    ny = nb.winfo_rooty()
+                    nw = nb.winfo_width()
+                    nh = nb.winfo_height()
+                    if nx <= x <= nx + nw and ny <= y <= ny + nh:
+                        current_tab = nb.index(nb.select())
+                        for widget in nb.winfo_children():
+                            try:
+                                if widget.winfo_viewable():
+                                    for canvas in widget.winfo_children():
+                                        if isinstance(canvas, tk.Canvas) and canvas.winfo_exists():
+                                            self._on_mousewheel(event, canvas)
+                                            return
+                            except tk.TclError:
+                                pass
             except tk.TclError:
                 pass
 
@@ -1245,631 +167,93 @@ class MatchDisplayApp:
         self.root.bind_all("<Button-4>", on_global_mousewheel)
         self.root.bind_all("<Button-5>", on_global_mousewheel)
 
-        # 右侧详情区域
-        right_frame = tk.Frame(main_paned, bg='#0f3460')
-        main_paned.add(right_frame)
-
-        # 保存当前滚动的画布引用
-        self.current_scroll_canvas = self.list_canvas
-
-        detail_title_font_size = max(10, int(16 * self.scale))
-        detail_title = tk.Label(
-            right_frame,
-            text="盘口详情",
-            font=('Microsoft YaHei', detail_title_font_size, 'bold'),
-            fg='#e94560',
-            bg='#0f3460'
-        )
-        detail_title.pack(pady=self.get_pad(10))
-
-        # 详情内容区域
-        self.detail_frame = tk.Frame(right_frame, bg='#0f3460')
-        self.detail_frame.pack(fill=tk.BOTH, expand=True, padx=self.get_pad(20), pady=self.get_pad(10))
-
-        self.show_welcome()
-
     def _on_mousewheel(self, event, canvas=None):
-        """鼠标滚轮事件"""
-        if canvas is None:
-            canvas = self.current_scroll_canvas
         if canvas is None:
             return
 
         try:
-            # 检查Canvas是否还存在（未被销毁）
             if not canvas.winfo_exists():
                 return
 
-            # 获取当前滚动位置
             current_pos = canvas.yview()
 
             if event.num == 4 or event.num == 5:
-                # Linux/macOS
                 if event.num == 4:
-                    # 向上滚动
                     if current_pos[0] > 0:
                         canvas.yview_scroll(-1, "units")
                 else:
-                    # 向下滚动
                     if current_pos[1] < 1:
                         canvas.yview_scroll(1, "units")
             else:
-                # Windows
                 delta = int(-1*(event.delta/120))
                 if delta < 0:
-                    # 向上滚动
                     if current_pos[0] > 0:
                         canvas.yview_scroll(delta, "units")
                 else:
-                    # 向下滚动
                     if current_pos[1] < 1:
                         canvas.yview_scroll(delta, "units")
 
         except tk.TclError:
-            # Canvas已被销毁，忽略错误
             pass
         except Exception as e:
             print(f"滚动错误: {e}")
 
-    def update_time(self):
-        """更新时间"""
+    def _update_time(self):
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.time_label.config(text=f"当前时间：{current_time}")
-        self.root.after(1000, self.update_time)
+        self.root.after(1000, self._update_time)
 
-    def show_welcome(self):
-        """显示欢迎信息"""
-        for widget in self.detail_frame.winfo_children():
-            widget.destroy()
-
-        welcome_label = tk.Label(
-            self.detail_frame,
-            text="请点击左侧比赛查看详情",
-            font=('Microsoft YaHei', 18, 'bold'),
-            fg='#ffffff',
-            bg='#0f3460'
-        )
-        welcome_label.pack(expand=True)
-
-    def start_auto_refresh(self):
-        """启动自动刷新，每隔1-3分钟随机间隔"""
-        # 取消之前的定时器
+    def _start_auto_refresh(self):
         if self.auto_refresh_after_id:
             self.root.after_cancel(self.auto_refresh_after_id)
             self.auto_refresh_after_id = None
 
-        # 随机间隔 1-3 分钟（60000-180000 毫秒）
         interval_ms = random.randint(60, 180) * 1000
         print(f"下次自动刷新将在 {interval_ms // 1000} 秒后执行")
 
         def do_refresh():
             print(f"[{datetime.now().strftime('%H:%M:%S')}] 自动刷新数据...")
-            self.refresh_data(auto=True)
+            self._refresh_data(auto=True)
 
         self.auto_refresh_after_id = self.root.after(interval_ms, do_refresh)
 
-    def stop_auto_refresh(self):
-        """停止自动刷新"""
+    def _stop_auto_refresh(self):
         if self.auto_refresh_after_id:
             self.root.after_cancel(self.auto_refresh_after_id)
             self.auto_refresh_after_id = None
 
-    def refresh_data(self, date_str: Optional[str] = None, auto: bool = False):
-        """刷新数据"""
-        # 如果没有传入日期，使用下拉框中选择的日期
+    def _refresh_data(self, date_str: Optional[str] = None, auto: bool = False):
         if not date_str:
-            date_str = self.date_var.get()
+            date_str = self.match_list_panel.get_date()
 
-        # 禁用刷新按钮防止重复点击
-        self.stats_label.config(text="加载中...")
+        self.match_list_panel.stats_label.config(text="加载中...")
 
-        # 使用线程获取数据，避免界面卡顿
         def fetch_thread():
             try:
                 self.matches = self.scraper.get_all_matches(date_str)
-                self.root.after(0, self.on_data_loaded)
+                self.root.after(0, self._on_data_loaded)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("错误", f"获取数据失败：{e}"))
-                self.root.after(0, self.on_data_loaded)
+                self.root.after(0, self._on_data_loaded)
 
         thread = threading.Thread(target=fetch_thread, daemon=True)
         thread.start()
 
-        # 如果是手动刷新，重新启动自动刷新计时器
         if not auto:
-            self.start_auto_refresh()
+            self._start_auto_refresh()
 
-    def on_date_selected(self, event=None):
-        """日期选择变化时刷新数据"""
-        date_str = self.date_var.get()
-        self.refresh_data(date_str)
-
-    def on_data_loaded(self):
-        """数据加载完成"""
+    def _on_data_loaded(self):
         if not self.matches:
             messagebox.showerror("错误", "获取数据失败，请检查网络连接")
-            self.stats_label.config(text="总场次：0")
+            self.match_list_panel.stats_label.config(text="0/0")
             return
 
-        # 更新联赛筛选选项
-        leagues = sorted(list(set([m['league'] for m in self.matches if m.get('league')])))
-        self.league_combo['values'] = ["全部"] + leagues
-
-        # 更新统计
-        self.stats_label.config(text=f"总场次：{len(self.matches)}")
-
-        # 过滤并显示
-        self.filter_matches()
-
-        # 刷新当前显示的盘口详情
-        self._refresh_current_detail()
-
-        # 自动刷新：数据加载完成后，安排下一次自动刷新
-        self.start_auto_refresh()
-
-    def filter_matches(self, event=None):
-        """过滤比赛"""
-        league = self.league_var.get()
-        status = self.status_var.get()
-
-        self.filtered_matches = []
-        for match in self.matches:
-            # 联赛筛选
-            if league != "全部":
-                match_league = match.get('league', '').strip()
-                if match_league != league.strip():
-                    continue
-
-            # 状态筛选
-            if status != "全部":
-                match_status = match.get('status', '')
-                if match_status != status:
-                    continue
-
-            self.filtered_matches.append(match)
-
-        # 更新统计
-        self.stats_label.config(text=f"赛事数量：{len(self.filtered_matches)}/{len(self.matches)}")
-
-        self.display_matches_list()
-
-    def display_matches_list(self):
-        """显示比赛列表"""
-        # 清空列表
-        for widget in self.matches_list_frame.winfo_children():
-            widget.destroy()
-
-        # 显示比赛
-        for i, match in enumerate(self.filtered_matches):
-            match_card = self.create_match_card(match, i)
-            match_card.pack(fill=tk.X, padx=10, pady=5)
-
-        if not self.filtered_matches:
-            no_data_label = tk.Label(
-                self.matches_list_frame,
-                text="没有符合条件的比赛",
-                font=('Microsoft YaHei', 14),
-                fg='#ffffff',
-                bg='#16213e'
-            )
-            no_data_label.pack(pady=50)
-
-    def create_match_card(self, match: Dict, index: int):
-        s = self.scale
-        card = tk.Frame(self.matches_list_frame, bg='#1a1a2e', cursor='hand2')
-        def on_click(event):
-            self.show_match_detail(match)
-
-        top_frame = tk.Frame(card, bg='#e94560')
-        top_frame.pack(fill=tk.X)
-        top_frame.bind('<Button-1>', on_click)
-
-        match_id = match.get('match_id', '')
-        if match_id:
-            match_id_label = tk.Label(top_frame, text=match_id, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#e94560', padx=int(10*s), pady=int(5*s))
-            match_id_label.pack(side=tk.LEFT)
-            match_id_label.bind('<Button-1>', on_click)
-
-        league_name = match.get('league', '')
-        if league_name:
-            league_label = tk.Label(top_frame, text=league_name, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#e94560', padx=int(10*s))
-            league_label.pack(side=tk.LEFT)
-            league_label.bind('<Button-1>', on_click)
-
-        match_time = match.get('match_time', '')
-        if match_time:
-            time_label = tk.Label(top_frame, text=match_time, font=('Microsoft YaHei', max(8, int(10*s))), fg='#ffffff', bg='#e94560', padx=int(10*s))
-            time_label.pack(side=tk.RIGHT)
-            time_label.bind('<Button-1>', on_click)
-
-        info_frame = tk.Frame(card, bg='#1a1a2e')
-        info_frame.pack(fill=tk.X, pady=int(12*s), padx=int(15*s))
-        info_frame.bind('<Button-1>', on_click)
-
-        # 获取比分 - 使用独立字段
-        home_score = match.get('home_score', '')
-        away_score = match.get('away_score', '')
-        home_jc = match.get('home_jc_score', '')
-        away_jc = match.get('away_jc_score', '')
-        has_score = False
-        if home_score != '' or away_score != '':
-            has_score = True
-
-        # 主队信息
-        home_team = match.get('home_team', '')
-        if home_team:
-            home_label = tk.Label(info_frame, text=home_team, font=('Microsoft YaHei', max(10, int(13*s)), 'bold'), fg='#00ff88', bg='#1a1a2e', anchor='w')
-            home_label.grid(row=0, column=0, sticky='w', padx=(0, 10))
-            home_label.bind('<Button-1>', on_click)
-
-        # 比分显示
-        if has_score:
-            # 主比分显示区域
-            score_frame = tk.Frame(info_frame, bg='#1a1a2e')
-            score_frame.grid(row=0, column=1, rowspan=2, padx=10)
-
-            # 实际比分
-            score_text = f"{home_score} - {away_score}"
-            score_label = tk.Label(score_frame, text=score_text, font=('Microsoft YaHei', max(12, int(18*s)), 'bold'), fg='#ffd700', bg='#1a1a2e')
-            score_label.pack()
-            score_label.bind('<Button-1>', on_click)
-
-            # 竞彩比分 (括号内显示)
-            if home_jc != '' or away_jc != '':
-                jc_text = f"({home_jc}:{away_jc})"
-                jc_label = tk.Label(score_frame, text=jc_text, font=('Microsoft YaHei', max(8, int(10*s))), fg='#aaaaaa', bg='#1a1a2e')
-                jc_label.pack()
-                jc_label.bind('<Button-1>', on_click)
-
-        # 客队信息
-        away_team = match.get('away_team', '')
-        if away_team:
-            away_label = tk.Label(info_frame, text=away_team, font=('Microsoft YaHei', max(10, int(13*s)), 'bold'), fg='#ff6b6b', bg='#1a1a2e', anchor='w')
-            away_label.grid(row=1, column=0, sticky='w', padx=(0, 10), pady=(5, 0))
-            away_label.bind('<Button-1>', on_click)
-
-        # 配置Grid列权重
-        info_frame.columnconfigure(0, weight=1)
-        info_frame.columnconfigure(1, weight=0)
-
-        status_frame = tk.Frame(card, bg='#0f3460')
-        status_frame.pack(fill=tk.X)
-        status_frame.bind('<Button-1>', on_click)
-
-        status = match.get('status', '')
-        status_code = match.get('status_code', '')
-        if status:
-            status_label = tk.Label(status_frame, text=status, font=('Microsoft YaHei', max(8, int(10*s)), 'bold'), fg='#ffffff', bg='#0f3460', padx=int(10*s), pady=int(5*s))
-            status_label.pack(side=tk.LEFT)
-            status_label.bind('<Button-1>', on_click)
-
-        # 显示比赛进行时间 - 完全按照网页football.js的逻辑
-        # JS源码: this.startTime = AmountTimeDiff(arr[2])  // arr[2]是update_time
-        # JS计算: goTime = Math.floor((now - startTime - difftime) / 60000) + (state == "1" ? 0 : 46)
-        # 上半场(1): goTime = (now - start_time) / 60000
-        # 下半场(3): goTime = (now - update_time) / 60000 + 46
-        if status_code in ['1', '3']:
-            display_time = None
-            try:
-                from datetime import datetime
-
-                if status_code == '1':
-                    # 上半场: 用开球时间计算
-                    time_str = match.get('start_time', '')
-                else:
-                    # 下半场: 用更新时间计算（JS的startTime = update_time）
-                    time_str = match.get('update_time', '')
-                
-                if time_str:
-                    parts = time_str.split(',')
-                    if len(parts) >= 6:
-                        dt = datetime(int(parts[0]), int(parts[1])+1,
-                                     int(parts[2]), int(parts[3]),
-                                     int(parts[4]), int(parts[5]))
-                        now_dt = datetime.now()
-                        elapsed = int((now_dt - dt).total_seconds() // 60)
-                        
-                        if status_code == '1':  # 上半场
-                            if elapsed > 45:
-                                display_time = "45+"
-                            elif elapsed < 1:
-                                display_time = "1'"
-                            else:
-                                display_time = f"{elapsed}'"
-                        elif status_code == '3':  # 下半场: elapsed + 46
-                            go_time = elapsed + 46
-                            if go_time > 90:
-                                display_time = "90+"
-                            elif go_time < 46:
-                                display_time = "46'"
-                            else:
-                                display_time = f"{go_time}'"
-            except Exception as e:
-                print(f"时间计算错误: {e}")
-            
-            if display_time:
-                time_frame = tk.Frame(status_frame, bg='#1a1a2e')
-                time_frame.pack(side=tk.RIGHT, padx=int(5*s))
-
-                time_label = tk.Label(time_frame, text=display_time,
-                                     font=('Microsoft YaHei', max(8, int(10*s)), 'bold'),
-                                     fg='#00ff00', bg='#1a1a2e', padx=int(10*s))
-                time_label.pack(side=tk.RIGHT)
-                time_label.bind('<Button-1>', on_click)
-
-        return card
-
-    def fetch_web_analysis(self, match: Dict) -> str:
-        """从网页获取详细分析数据"""
-        match_unique_id = match.get('match_unique_id', '')
-        if not match_unique_id:
-            return self.parse_web_content("", match, {})
-
-        url = f"https://zq.titan007.com/analysis/{match_unique_id}.htm"
-        print(f"正在获取分析页面: {url}")
-
-        try:
-            response = self.scraper.session.get(url, timeout=10)
-            response.encoding = 'utf-8'
-
-            if response.status_code == 200:
-                html = response.text
-                analysis_data = self.scraper.parse_analysis_data(html)
-                return self.parse_web_content(html, match, analysis_data)
-        except Exception as e:
-            print(f"获取分析页面失败: {e}")
-
-        return self.parse_web_content("", match, {})
-
-    def parse_web_content(self, html: str, match: Dict, analysis_data: Dict) -> str:
-        """解析网页内容 - 专业完整的赔率显示"""
-        lines = []
-        lines.append("")
-
-        # 标题
-        lines.append("")
-        lines.append(f"        ┌─────────────────────────────────────────────────────────────┐")
-        lines.append(f"        │                    比赛详情: {match.get('match_id', '')}                      │")
-        lines.append(f"        └─────────────────────────────────────────────────────────────┘")
-        lines.append("")
-
-        # 对阵双方
-        home_team = match.get('home_team', '')
-        away_team = match.get('away_team', '')
-        lines.append(f"                       {home_team}  VS  {away_team}")
-        lines.append("")
-
-        # 基本信息
-        lines.append("")
-        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
-        lines.append(f"     │                        基本信息                                   │")
-        lines.append(f"     ├─────────────────────────────────────────────────────────────────┤")
-        lines.append(f"     │ 联赛: {match.get('league', ''):<51} │")
-        lines.append(f"     │ 状态: {match.get('status', ''):<51} │")
-        lines.append(f"     │ 时间: {match.get('match_time', ''):<51} │")
-
-        score = match.get('score', '')
-        if score:
-            lines.append(f"     │ 比分: {score:<51} │")
-        lines.append(f"     └─────────────────────────────────────────────────────────────────┘")
-        lines.append("")
-
-        # 胜平负赔率表格
-        init_home = ''
-        init_draw = ''
-        init_away = ''
-        curr_home = ''
-        curr_draw = ''
-        curr_away = ''
-        jc = analysis_data.get('jc_odds', {}) if analysis_data else {}
-        if jc and jc.get('eu_curr_home'):
-            init_home = jc.get('eu_init_home', '')
-            init_draw = jc.get('eu_init_draw', '')
-            init_away = jc.get('eu_init_away', '')
-            curr_home = jc.get('eu_curr_home', '')
-            curr_draw = jc.get('eu_curr_draw', '')
-            curr_away = jc.get('eu_curr_away', '')
-        if not init_home:
-            instant = analysis_data.get('instant_eu_odds', {}) if analysis_data else {}
-            if instant:
-                init_home = instant.get('init_home', '')
-                init_draw = instant.get('init_draw', '')
-                init_away = instant.get('init_away', '')
-                curr_home = instant.get('curr_home', '')
-                curr_draw = instant.get('curr_draw', '')
-                curr_away = instant.get('curr_away', '')
-        if not init_home:
-            odds_trend = analysis_data.get('odds_trend', []) if analysis_data else []
-            for item in odds_trend:
-                if item.get('company_id') == '3' or item.get('company') == 'Crow*':
-                    init_home = item.get('eu_init_home', '')
-                    init_draw = item.get('eu_init_draw', '')
-                    init_away = item.get('eu_init_away', '')
-                    curr_home = item.get('eu_curr_home', '')
-                    curr_draw = item.get('eu_curr_draw', '')
-                    curr_away = item.get('eu_curr_away', '')
-                    break
-            if not init_home:
-                for item in odds_trend:
-                    if item.get('eu_init_home'):
-                        init_home = item.get('eu_init_home', '')
-                        init_draw = item.get('eu_init_draw', '')
-                        init_away = item.get('eu_init_away', '')
-                        curr_home = item.get('eu_curr_home', '')
-                        curr_draw = item.get('eu_curr_draw', '')
-                        curr_away = item.get('eu_curr_away', '')
-                        break
-
-        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
-        lines.append(f"     │                       胜平负赔率                                  │")
-        lines.append(f"     ├───────────┬───────────────┬───────────────┬──────────────────────┤")
-        lines.append(f"     │   类型    │     主胜      │     平局      │     客胜             │")
-        lines.append(f"     ├───────────┼───────────────┼───────────────┼──────────────────────┤")
-        lines.append(f"     │   初盘    │  {init_home:<12} │  {init_draw:<12} │  {init_away:<16}       │")
-        lines.append(f"     │   即时    │  {curr_home:<12} │  {curr_draw:<12} │  {curr_away:<16}       │")
-        lines.append(f"     └───────────┴───────────────┴───────────────┴──────────────────────┘")
-        lines.append("")
-
-        # 让球盘口
-        handicap = match.get('handicap', '')
-        handicap_text = ""
-        if handicap:
-            try:
-                handicap_val = float(handicap)
-                if handicap_val > 0:
-                    handicap_text = f"主队让 {handicap_val} 球"
-                elif handicap_val < 0:
-                    handicap_text = f"客队让 {abs(handicap_val)} 球"
-                else:
-                    handicap_text = "平手盘"
-            except:
-                handicap_text = handicap
-
-        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
-        lines.append(f"     │                       让球盘口                                   │")
-        lines.append(f"     ├─────────────────────────────────────────────────────────────────┤")
-        lines.append(f"     │ 盘口: {handicap:<49} │")
-        if handicap_text:
-            lines.append(f"     │ 说明: {handicap_text:<49} │")
-        lines.append(f"     └─────────────────────────────────────────────────────────────────┘")
-        lines.append("")
-
-        # 欧洲指数详细表格
-        european_odds = analysis_data.get('european_odds', [])
-        if european_odds:
-            lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
-            lines.append(f"     │                      欧洲指数公司赔率                              │")
-            lines.append(f"     ├────────────┬───────────┬──────────┬───────────┬──────────┬────────┤")
-            lines.append(f"     │   公司     │   主胜初  │  平初   │  客胜初   │  即时主 │即时平  │")
-            lines.append(f"     ├────────────┼───────────┼──────────┼───────────┼──────────┼────────┤")
-
-            for i, odd in enumerate(european_odds[:8]):
-                company = odd.get('company', '')
-                home_init = odd.get('home_init', '')
-                draw_init = odd.get('draw_init', '')
-                away_init = odd.get('away_init', '')
-                home_curr = odd.get('home_curr', '')
-                draw_curr = odd.get('draw_curr', '')
-
-                lines.append(f"     │ {company:<10} │ {home_init:<9} │ {draw_init:<8} │ {away_init:<9} │ {home_curr:<8} │ {draw_curr:<8} │")
-
-            lines.append(f"     └────────────┴───────────┴──────────┴───────────┴──────────┴────────┘")
-            lines.append("")
-
-        # 亚洲指数详细表格
-        asian_odds = analysis_data.get('asian_odds', [])
-        if asian_odds:
-            lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
-            lines.append(f"     │                      亚洲盘口赔率                                  │")
-            lines.append(f"     ├────────────┬───────────┬──────────┬───────────┬──────────┬────────┤")
-            lines.append(f"     │   公司     │   主胜初  │  让球初  │  客胜初   │  即时主 │即让球  │")
-            lines.append(f"     ├────────────┼───────────┼──────────┼───────────┼──────────┼────────┤")
-
-            for i, odd in enumerate(asian_odds[:8]):
-                company = odd.get('company', '')
-                home_init = odd.get('home_init', '')
-                handicap_init = odd.get('handicap_init', '')
-                away_init = odd.get('away_init', '')
-                home_curr = odd.get('home_curr', '')
-                handicap_curr = odd.get('handicap_curr', '')
-
-                lines.append(f"     │ {company:<10} │ {home_init:<9} │ {handicap_init:<8} │ {away_init:<9} │ {home_curr:<8} │ {handicap_curr:<8} │")
-
-            lines.append(f"     └────────────┴───────────┴──────────┴───────────┴──────────┴────────┘")
-            lines.append("")
-
-        # 其他数据
-        lines.append(f"     ┌─────────────────────────────────────────────────────────────────┐")
-        lines.append(f"     │                        其他信息                                   │")
-        lines.append(f"     ├─────────────────────────────────────────────────────────────────┤")
-        lines.append(f"     │ 比赛唯一ID: {match.get('match_unique_id', ''):<44} │")
-        lines.append(f"     └─────────────────────────────────────────────────────────────────┘")
-        lines.append("")
-        lines.append("")
-
-        return "\n".join(lines)
-
-    def display_web_analysis(self, match: Dict, analysis_data: Dict, loading_label):
-        s = self.scale
-
-        # 检查loading_label是否还存在
-        try:
-            if loading_label.winfo_exists():
-                loading_label.destroy()
-        except tk.TclError:
-            pass
-
-        # 检查detail_frame是否还存在
-        try:
-            if not self.detail_frame.winfo_exists():
-                return
-        except tk.TclError:
-            return
-
-        # 清除之前的绑定
-        for widget in self.detail_frame.winfo_children():
-            try:
-                widget.destroy()
-            except tk.TclError:
-                pass
-
-        # 创建Canvas和滚动条
-        canvas = tk.Canvas(self.detail_frame, bg='#0f3460', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.detail_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg='#0f3460')
-
-        detail_window_id = None
-
-        def on_detail_canvas_config(event):
-            try:
-                if detail_window_id and canvas.winfo_exists():
-                    canvas.itemconfig(detail_window_id, width=event.width)
-                    canvas.configure(scrollregion=canvas.bbox("all"))
-            except tk.TclError:
-                pass
-
-        def on_detail_frame_config(event):
-            try:
-                if canvas.winfo_exists():
-                    canvas.configure(scrollregion=canvas.bbox("all"))
-            except tk.TclError:
-                pass
-
-        canvas.bind("<Configure>", on_detail_canvas_config)
-        scrollable_frame.bind("<Configure>", on_detail_frame_config)
-
-        detail_window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 使用新的专业表格显示 - 传入analysis_data显示完整数据
-        odds_display = OddsTableDisplay(scrollable_frame, s)
-        odds_display.create_full_display(match, analysis_data)
-
-    def _refresh_current_detail(self):
-        current_id = getattr(self, '_current_detail_match_id', '')
-        if not current_id:
-            return
-        current_match = None
-        for m in self.matches:
-            if m.get('match_unique_id') == current_id:
-                current_match = m
-                break
-        if not current_match:
-            return
-
-        status = current_match.get('status', '')
-        if '完场' in status:
-            cache_key = f"detail_{current_id}"
-            cached = self.scraper.detail_cache.get(cache_key)
-            if cached:
-                print(f"[缓存] 已完场比赛使用缓存: {current_id}")
-                return
-
-        self.show_match_detail(current_match)
-
-    def show_match_detail(self, match: Dict):
+        self.match_list_panel.update_matches(self.matches)
+        if self.matches:
+            self._on_match_selected(self.matches[0])
+        self._start_auto_refresh()
+
+    def _on_match_selected(self, match):
         if hasattr(self, '_current_load_event') and self._current_load_event:
             self._current_load_event.set()
 
@@ -1877,15 +261,11 @@ class MatchDisplayApp:
         self._current_load_event = cancel_event
 
         self._current_detail_match_id = match.get('match_unique_id', '')
-        s = self.scale
-        for widget in self.detail_frame.winfo_children():
-            try:
-                widget.destroy()
-            except tk.TclError:
-                pass
 
-        loading_label = tk.Label(self.detail_frame, text="正在加载详细数据...", font=('Microsoft YaHei', max(10, int(16*s))), fg='#00ff88', bg='#0f3460')
-        loading_label.pack(expand=True)
+        self.match_info_panel.update_data(match, None)
+        self.standings_panel.update_data(match, None)
+        self.odds_trend_panel.update_data(match, None)
+        self.jc_index_panel.update_data(match, None)
 
         def load_detail():
             analysis_data = self.scraper.fetch_match_analysis(match, cancel_event=cancel_event)
@@ -1895,477 +275,30 @@ class MatchDisplayApp:
                 for key in ['venue', 'weather', 'temperature', 'league_round', 'match_date', 'match_day', 'home_logo', 'away_logo', 'standings_data']:
                     if key in analysis_data and key not in match:
                         match[key] = analysis_data[key]
+            self._current_analysis_data = analysis_data
             try:
-                self.root.after(0, lambda: self._safe_display_web_analysis(match, analysis_data, loading_label))
+                self.root.after(0, lambda: self._safe_update_panels(match, analysis_data))
             except tk.TclError:
                 pass
 
         thread = threading.Thread(target=load_detail, daemon=True)
         thread.start()
 
-    def _safe_display_web_analysis(self, match: Dict, analysis_data: Dict, loading_label):
+    def _safe_update_panels(self, match, analysis_data):
         try:
             if not self.root.winfo_exists():
                 return
-            self.display_web_analysis(match, analysis_data, loading_label)
+            self.match_info_panel.update_data(match, analysis_data)
+            self.standings_panel.update_data(match, analysis_data)
+            self.odds_trend_panel.update_data(match, analysis_data)
+            self.jc_index_panel.update_data(match, analysis_data)
         except tk.TclError as e:
             print(f"显示详情时出错(窗口可能已关闭): {e}")
         except Exception as e:
             print(f"显示详情时出错: {e}")
 
-    def show_odds_analysis(self, match: Dict):
-        """显示盘口分析"""
-        # 创建新窗口
-        analysis_window = tk.Toplevel(self.root)
-        analysis_window.title(f"比赛数据详情 - {match.get('match_id', 'Unknown')}")
-        analysis_window.geometry("900x750")
-        analysis_window.configure(bg='#1a1a2e')
-
-        # 标题
-        match_id = match.get('match_id', '')
-        title_label = tk.Label(
-            analysis_window,
-            text=f" {match_id} 比赛数据详情",
-            font=('Microsoft YaHei', 20, 'bold'),
-            fg='#e94560',
-            bg='#1a1a2e'
-        )
-        title_label.pack(pady=15)
-
-        # 对阵信息
-        teams_text = f"{match.get('home_team', '')} VS {match.get('away_team', '')}"
-        teams_label = tk.Label(
-            analysis_window,
-            text=teams_text,
-            font=('Microsoft YaHei', 16, 'bold'),
-            fg='#ffffff',
-            bg='#1a1a2e'
-        )
-        teams_label.pack(pady=10)
-
-        # 创建选项卡
-        notebook = ttk.Notebook(analysis_window)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-
-        # 基本信息标签页
-        basic_frame = tk.Frame(notebook, bg='#16213e')
-        notebook.add(basic_frame, text="基本信息")
-        self.create_basic_info_tab(basic_frame, match)
-
-        # 盘口数据标签页
-        odds_frame = tk.Frame(notebook, bg='#16213e')
-        notebook.add(odds_frame, text="盘口数据")
-        self.create_odds_data_tab(odds_frame, match)
-
-        # 原始数据标签页
-        raw_frame = tk.Frame(notebook, bg='#16213e')
-        notebook.add(raw_frame, text="原始数据")
-        self.create_raw_data_tab(raw_frame, match)
-
-        # 关闭按钮
-        close_btn = tk.Button(
-            analysis_window,
-            text="关闭",
-            command=analysis_window.destroy,
-            font=('Microsoft YaHei', 12, 'bold'),
-            bg='#e94560',
-            fg='#ffffff',
-            relief=tk.FLAT,
-            cursor='hand2',
-            padx=40,
-            pady=10
-        )
-        close_btn.pack(pady=15)
-
-    def create_basic_info_tab(self, parent, match: Dict):
-        """创建基本信息标签页"""
-        # 滚动区域
-        canvas = tk.Canvas(parent, bg='#16213e', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg='#16213e')
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 基本信息
-        info_data = [
-            ("比赛编号", match.get('match_id', 'N/A')),
-            ("联赛", match.get('league', 'N/A')),
-            ("比赛时间", match.get('match_time', 'N/A')),
-            ("比赛状态", match.get('status', 'N/A')),
-            ("主队", match.get('home_team', 'N/A')),
-            ("客队", match.get('away_team', 'N/A')),
-            ("比分", match.get('score', '未开始') if match.get('score') else '未开始'),
-        ]
-
-        for i, (label, value) in enumerate(info_data):
-            row_frame = tk.Frame(scrollable_frame, bg='#16213e')
-            row_frame.pack(fill=tk.X, pady=5, padx=20)
-
-            label_widget = tk.Label(
-                row_frame,
-                text=f"{label}:",
-                font=('Microsoft YaHei', 12, 'bold'),
-                fg='#00ff88',
-                bg='#16213e',
-                width=15,
-                anchor='w'
-            )
-            label_widget.pack(side=tk.LEFT)
-
-            value_widget = tk.Label(
-                row_frame,
-                text=value,
-                font=('Microsoft YaHei', 12),
-                fg='#ffffff',
-                bg='#16213e',
-                anchor='w'
-            )
-            value_widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-    def create_odds_data_tab(self, parent, match: Dict):
-        """创建盘口数据标签页"""
-        # 滚动区域
-        canvas = tk.Canvas(parent, bg='#16213e', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg='#16213e')
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 加载分析数据
-        loading_label = tk.Label(
-            scrollable_frame,
-            text="正在加载赔率数据...",
-            font=('Microsoft YaHei', 12),
-            fg='#00ff88',
-            bg='#16213e'
-        )
-        loading_label.pack(pady=20)
-
-        # 使用线程加载数据
-        def load_odds():
-            analysis_data = self.scraper.fetch_match_analysis(match)
-            self.root.after(0, lambda: self.display_odds_data(scrollable_frame, match, analysis_data, loading_label))
-
-        thread = threading.Thread(target=load_odds, daemon=True)
-        thread.start()
-
-    def display_odds_data(self, parent, match: Dict, analysis_data: Dict, loading_label):
-        """显示赔率数据"""
-        loading_label.destroy()
-
-        # 基础盘口信息
-        handicap = match.get('handicap', '')
-        if handicap:
-            self.create_handicap_section(parent, handicap)
-
-        # 欧洲指数
-        euro_odds = analysis_data.get('european_odds', [])
-        if euro_odds:
-            self.create_european_odds_section(parent, euro_odds)
-
-        # 亚洲盘口
-        asian_odds = analysis_data.get('asian_odds', [])
-        if asian_odds:
-            self.create_asian_odds_section(parent, asian_odds)
-
-        # 进球数
-        goal_odds = analysis_data.get('goal_odds', [])
-        if goal_odds:
-            self.create_goal_odds_section(parent, goal_odds)
-
-        if not handicap and not euro_odds and not asian_odds and not goal_odds:
-            no_data_label = tk.Label(
-                parent,
-                text="暂无详细赔率数据",
-                font=('Microsoft YaHei', 14),
-                fg='#aaaaaa',
-                bg='#16213e'
-            )
-            no_data_label.pack(pady=50)
-
-    def create_handicap_section(self, parent, handicap: str):
-        """创建让球盘口区"""
-        frame = tk.Frame(parent, bg='#0f3460', padx=20, pady=15)
-        frame.pack(fill=tk.X, pady=10, padx=20)
-
-        title = tk.Label(
-            frame,
-            text="让球盘口",
-            font=('Microsoft YaHei', 14, 'bold'),
-            fg='#e94560',
-            bg='#0f3460'
-        )
-        title.pack(anchor='w', pady=(0, 10))
-
-        try:
-            val = float(handicap)
-            if val > 0:
-                text = f"主队让 {val} 球"
-                desc = "主队让球方"
-            elif val < 0:
-                text = f"客队让 {abs(val)} 球"
-                desc = "客队让球方"
-            else:
-                text = "平手盘"
-                desc = "双方平手"
-        except:
-            text = handicap
-            desc = "盘口数据"
-
-        info = tk.Label(
-            frame,
-            text=text,
-            font=('Microsoft YaHei', 16, 'bold'),
-            fg='#00ffff',
-            bg='#0f3460'
-        )
-        info.pack(anchor='w')
-
-        desc_label = tk.Label(
-            frame,
-            text=desc,
-            font=('Microsoft YaHei', 10),
-            fg='#aaaaaa',
-            bg='#0f3460'
-        )
-        desc_label.pack(anchor='w', pady=(5, 0))
-
-    def create_european_odds_section(self, parent, odds_list: List[Dict]):
-        """创建欧洲指数区"""
-        frame = tk.Frame(parent, bg='#0f3460', padx=20, pady=15)
-        frame.pack(fill=tk.X, pady=10, padx=20)
-
-        title = tk.Label(
-            frame,
-            text="欧洲指数",
-            font=('Microsoft YaHei', 14, 'bold'),
-            fg='#e94560',
-            bg='#0f3460'
-        )
-        title.pack(anchor='w', pady=(0, 10))
-
-        # 创建表格
-        self.create_odds_table(frame, odds_list, [
-            ("公司", "company", 10),
-            ("初主胜", "home_init", 8),
-            ("初平局", "draw_init", 8),
-            ("初客胜", "away_init", 8),
-            ("现主胜", "home_curr", 8),
-            ("现平局", "draw_curr", 8),
-            ("现客胜", "away_curr", 8)
-        ])
-
-    def create_asian_odds_section(self, parent, odds_list: List[Dict]):
-        """创建亚洲盘口区"""
-        frame = tk.Frame(parent, bg='#0f3460', padx=20, pady=15)
-        frame.pack(fill=tk.X, pady=10, padx=20)
-
-        title = tk.Label(
-            frame,
-            text="亚洲盘口",
-            font=('Microsoft YaHei', 14, 'bold'),
-            fg='#e94560',
-            bg='#0f3460'
-        )
-        title.pack(anchor='w', pady=(0, 10))
-
-        # 创建表格
-        self.create_odds_table(frame, odds_list, [
-            ("公司", "company", 10),
-            ("初盘水", "home_init", 8),
-            ("初盘口", "handicap_init", 8),
-            ("初盘水", "away_init", 8),
-            ("现盘水", "home_curr", 8),
-            ("现盘口", "handicap_curr", 8),
-            ("现盘水", "away_curr", 8)
-        ])
-
-    def create_goal_odds_section(self, parent, odds_list: List[Dict]):
-        """创建进球数区"""
-        frame = tk.Frame(parent, bg='#0f3460', padx=20, pady=15)
-        frame.pack(fill=tk.X, pady=10, padx=20)
-
-        title = tk.Label(
-            frame,
-            text="进球数",
-            font=('Microsoft YaHei', 14, 'bold'),
-            fg='#e94560',
-            bg='#0f3460'
-        )
-        title.pack(anchor='w', pady=(0, 10))
-
-        # 创建表格
-        self.create_odds_table(frame, odds_list, [
-            ("公司", "company", 10),
-            ("初盘口", "goal_init", 8),
-            ("初大球", "big_init", 8),
-            ("初小球", "small_init", 8),
-            ("现盘口", "goal_curr", 8),
-            ("现大球", "big_curr", 8),
-            ("现小球", "small_curr", 8)
-        ])
-
-    def create_odds_table(self, parent, data_list: List[Dict], columns: List[tuple]):
-        """创建赔率表格"""
-        table_frame = tk.Frame(parent, bg='#0f3460')
-        table_frame.pack(fill=tk.X)
-
-        # 表头
-        for i, (header, key, width) in enumerate(columns):
-            label = tk.Label(
-                table_frame,
-                text=header,
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#ffffff',
-                bg='#16213e',
-                width=width,
-                relief=tk.RIDGE,
-                borderwidth=1
-            )
-            label.grid(row=0, column=i, sticky='nsew')
-
-        # 数据行
-        for row_idx, data in enumerate(data_list[:10], 1):  # 限制显示 10 条
-            for col_idx, (header, key, width) in enumerate(columns):
-                value = data.get(key, '')
-                bg_color = '#0f3460' if row_idx % 2 == 1 else '#16213e'
-                fg_color = '#00ff88' if key in ['home_curr', 'home_init'] and value else '#ffffff'
-
-                label = tk.Label(
-                    table_frame,
-                    text=value,
-                    font=('Microsoft YaHei', 9),
-                    fg=fg_color,
-                    bg=bg_color,
-                    width=width,
-                    relief=tk.RIDGE,
-                    borderwidth=1
-                )
-                label.grid(row=row_idx, column=col_idx, sticky='nsew')
-
-    def create_raw_data_tab(self, parent, match: Dict):
-        """创建原始数据标签页"""
-        # 滚动区域
-        canvas = tk.Canvas(parent, bg='#16213e', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg='#16213e')
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        raw_data = match.get('raw_data', [])
-
-        if raw_data:
-            # 表头
-            header_frame = tk.Frame(scrollable_frame, bg='#0f3460')
-            header_frame.pack(fill=tk.X, pady=5, padx=20)
-
-            tk.Label(
-                header_frame,
-                text="字段索引",
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#ffffff',
-                bg='#0f3460',
-                width=10
-            ).pack(side=tk.LEFT, padx=5)
-
-            tk.Label(
-                header_frame,
-                text="字段值",
-                font=('Microsoft YaHei', 10, 'bold'),
-                fg='#ffffff',
-                bg='#0f3460'
-            ).pack(side=tk.LEFT)
-
-            # 数据行
-            for i, field in enumerate(raw_data):
-                row_frame = tk.Frame(scrollable_frame, bg='#16213e' if i % 2 == 0 else '#0f3460')
-                row_frame.pack(fill=tk.X, pady=1, padx=20)
-
-                tk.Label(
-                    row_frame,
-                    text=f"[{i:2d}]",
-                    font=('Microsoft YaHei', 9),
-                    fg='#00ff88',
-                    bg=row_frame.cget('bg'),
-                    width=10
-                ).pack(side=tk.LEFT, padx=5)
-
-                tk.Label(
-                    row_frame,
-                    text=field if field else '(空)',
-                    font=('Microsoft YaHei', 9),
-                    fg='#ffffff',
-                    bg=row_frame.cget('bg'),
-                    anchor='w'
-                ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-    def generate_analysis_text(self, match: Dict) -> str:
-        """生成分析文本"""
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        # 获取盘口信息
-        handicap = match.get('handicap', '')
-        odd_field = match.get('odd_field', '')
-
-        init_handicap = handicap if handicap else '暂无'
-        curr_handicap = odd_field if odd_field else (handicap if handicap else '暂无')
-
-        analysis = f"""【比赛信息】
-联赛：{match.get('league', 'N/A')}
-时间：{match.get('match_time', 'N/A')}
-状态：{match.get('status', 'N/A')}
-
-【对阵双方】
-主队：{match.get('home_team', 'N/A')}
-客队：{match.get('away_team', 'N/A')}
-
-【比分】
-{match.get('score', '未开始') if match.get('score') else '比赛未开始'}
-
-【盘口信息】
-初盘：{init_handicap}
-即时盘：{curr_handicap}
-
-【分析说明】
-本系统提供实时比赛数据展示，
-盘口数据来自官方数据源。
-
-【数据更新】
-数据源：球探体育
-最后更新：{current_time}
-"""
-        return analysis
-
 
 def main():
-    """主函数"""
     root = tk.Tk()
     app = MatchDisplayApp(root)
     root.mainloop()
