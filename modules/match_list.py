@@ -21,9 +21,7 @@ class MatchListPanel:
         self.league_var = tk.StringVar(value="全部")
         self.status_var = tk.StringVar(value="全部")
         self.date_var = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
-        self.progress_var = tk.StringVar(value="全部")
         self.stats_label = None
-        self.progress_buttons = []
         self._setup_ui()
 
     def _setup_ui(self):
@@ -71,31 +69,6 @@ class MatchListPanel:
         )
         self.stats_label.pack(side=tk.RIGHT, padx=max(2, int(5*s)))
 
-        row2 = tk.Frame(control_frame, bg='#1a1a2e')
-        row2.pack(fill=tk.X, pady=(0, 0))
-
-        progress_options = [
-            ("全部", "全部"),
-            ("进行中", "进行中"),
-            ("未开始", "未开始"),
-            ("已结束", "已结束"),
-        ]
-        for text, val in progress_options:
-            btn = tk.Button(
-                row2,
-                text=text,
-                font=('Microsoft YaHei', btn_font_size),
-                bg='#0f3460',
-                fg='#ffffff' if val != "全部" else '#00ff88',
-                relief=tk.FLAT,
-                cursor='hand2',
-                padx=int(15*s),
-                pady=int(8*s),
-                command=lambda v=val: self._set_progress(v)
-            )
-            btn.pack(side=tk.LEFT, padx=max(1, int(3*s)))
-            self.progress_buttons.append((btn, val))
-
         row3 = tk.Frame(control_frame, bg='#1a1a2e')
         row3.pack(fill=tk.X, pady=(0, 0))
 
@@ -112,7 +85,7 @@ class MatchListPanel:
             row3,
             textvariable=self.league_var,
             state="readonly",
-            width=16,
+            width=11,
             font=('Microsoft YaHei', combo_font_size)
         )
         self.league_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=max(2, int(5*s)))
@@ -175,15 +148,6 @@ class MatchListPanel:
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    def _set_progress(self, value):
-        self.progress_var.set(value)
-        for btn, val in self.progress_buttons:
-            if val == value:
-                btn.config(bg='#e94560', fg='#ffffff')
-            else:
-                btn.config(bg='#0f3460', fg='#ffffff')
-        self._filter_matches()
-
     def _do_refresh(self, event=None):
         if self.on_refresh:
             self.on_refresh()
@@ -204,7 +168,6 @@ class MatchListPanel:
     def _filter_matches(self, event=None):
         league = self.league_var.get()
         status = self.status_var.get()
-        progress = self.progress_var.get()
 
         self.filtered_matches = []
         for match in self.matches:
@@ -216,17 +179,6 @@ class MatchListPanel:
                 match_status = match.get('status', '')
                 if match_status != status:
                     continue
-            if progress != "全部":
-                match_status = match.get('status', '')
-                if progress == "进行中":
-                    if match_status not in ("上半场", "中场", "下半场"):
-                        continue
-                elif progress == "未开始":
-                    if match_status != "未开始":
-                        continue
-                elif progress == "已结束":
-                    if match_status != "已完场":
-                        continue
             self.filtered_matches.append(match)
 
         self.stats_label.config(text=f"{len(self.filtered_matches)}/{len(self.matches)}")

@@ -35,6 +35,7 @@ class OddsTrendPanel:
             return
 
         odds_trend = analysis_data.get('odds_trend', [])
+        self.odds_trend = odds_trend
         if not odds_trend:
             self._show_no_data()
             return
@@ -170,7 +171,6 @@ class OddsTrendPanel:
                     html = resp.content.decode('GB18030', errors='replace')
                     soup = BeautifulSoup(html, 'html.parser')
 
-                    # 获取当前公司对应的 odds_trend 数据
                     current_odds_item = None
                     for item in self.odds_trend:
                         if str(item.get('company_id', '')) == str(company_id):
@@ -179,8 +179,9 @@ class OddsTrendPanel:
 
                     popup.after(0, lambda: self._render_detail_content(
                         content_frame, soup, '', chart_type, page_file, company_name, s, content_canvas, current_odds_item))
-                except Exception as e:
-                    popup.after(0, lambda: self._show_popup_error(content_frame, str(e)))
+                except Exception as err:
+                    err_msg = str(err)
+                    popup.after(0, lambda msg=err_msg: self._show_popup_error(content_frame, msg))
 
             threading.Thread(target=fetch_page, daemon=True).start()
 

@@ -562,15 +562,31 @@ class MatchScraper:
 
     def _parse_standings_js(self, soup, html: str, analysis_data: Dict):
         try:
+            result = {
+                'home_team': None,
+                'away_team': None,
+                'total': [],
+                'home': [],
+                'away': [],
+            }
+
             porlet_5 = soup.find('div', id='porlet_5')
             if porlet_5:
-                standings = self._parse_porlet5_tables(porlet_5)
-                if standings:
-                    analysis_data['standings_data'] = standings
-                    return
-            standings = self._parse_standings_js_vars(html)
-            if standings:
-                analysis_data['standings_data'] = standings
+                team_data = self._parse_porlet5_tables(porlet_5)
+                if team_data:
+                    result['home_team'] = team_data.get('home_team')
+                    result['away_team'] = team_data.get('away_team')
+
+            js_data = self._parse_standings_js_vars(html)
+            if js_data:
+                result['total'] = js_data.get('total', [])
+                result['home'] = js_data.get('home', [])
+                result['away'] = js_data.get('away', [])
+
+            has_team = result['home_team'] or result['away_team']
+            has_league = any(result.get(k) for k in ['total', 'home', 'away'])
+            if has_team or has_league:
+                analysis_data['standings_data'] = result
         except Exception as e:
             print(f"解析赛前积分榜失败: {e}")
 
@@ -642,11 +658,13 @@ class MatchScraper:
         try:
             result = {'total': [], 'home': [], 'away': [], 'format': 'league'}
             for var_name, key in [('totalScoreStr', 'total'), ('homeScoreStr', 'home'), ('guestScoreStr', 'away')]:
-                m = re.search(rf'var\s+{var_name}\s*=\s*(\[.+?\]);', html, re.DOTALL)
+                m = re.search(rf'var\s+{var_name}\s*=\s*(\[\[.*?\]\]);', html, re.DOTALL)
                 if not m:
                     continue
+                raw = m.group(1)
+                fixed = raw.replace("'", '"')
                 try:
-                    data = json.loads(m.group(1))
+                    data = json.loads(fixed)
                     for item in data:
                         if key == 'total' and len(item) >= 5:
                             result[key].append({

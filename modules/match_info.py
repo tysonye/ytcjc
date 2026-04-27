@@ -64,9 +64,11 @@ class MatchInfoPanel:
             league_label.pack(side=tk.LEFT)
             standings_data = match.get('standings_data')
             if standings_data and league_round:
-                home_team = match.get('home_team', '')
-                away_team = match.get('away_team', '')
-                StandingsTooltip(league_label, standings_data, s, home_team, away_team)
+                half_full_stats = match.get('half_full_stats')
+                def _on_league_click(event=None):
+                    from modules.standings import show_standings_popup
+                    show_standings_popup(parent, standings_data, match, s, half_full_stats)
+                league_label.bind('<Button-1>', _on_league_click)
 
         match_date = match.get('match_date', '')
         match_time = match.get('match_time', '')
