@@ -170,17 +170,15 @@ class OddsTrendPanel:
                     html = resp.content.decode('GB18030', errors='replace')
                     soup = BeautifulSoup(html, 'html.parser')
 
-                    chart_data_str = None
-                    if chart_type > 0:
-                        iframe = soup.find('iframe', src=lambda x: x and 'chartFlash' in x)
-                        if iframe:
-                            chart_src = iframe.get('src', '')
-                            if chart_src and not chart_src.startswith('http'):
-                                chart_src = 'https://vip.titan007.com/changeDetail/' + chart_src
-                            chart_data_str = self._fetch_chart_data(chart_src, headers)
+                    # 获取当前公司对应的 odds_trend 数据
+                    current_odds_item = None
+                    for item in self.odds_trend:
+                        if str(item.get('company_id', '')) == str(company_id):
+                            current_odds_item = item
+                            break
 
                     popup.after(0, lambda: self._render_detail_content(
-                        content_frame, soup, chart_data_str, chart_type, page_file, company_name, s, content_canvas))
+                        content_frame, soup, '', chart_type, page_file, company_name, s, content_canvas, current_odds_item))
                 except Exception as e:
                     popup.after(0, lambda: self._show_popup_error(content_frame, str(e)))
 
@@ -199,21 +197,48 @@ class OddsTrendPanel:
 
         switch_tab(tabs[0][1], tabs[0][2], tab_buttons[0])
 
-    def _fetch_chart_data(self, chart_url, headers):
-        if not chart_url:
-            return None
-        try:
-            import requests
-            resp = requests.get(chart_url, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                return None
-            html = resp.content.decode('GB18030', errors='replace')
-            match = re.search(r"var\s+dataStr\s*=\s*'([^']+)'", html)
-            if match:
-                return match.group(1)
-        except Exception as e:
-            print(f"获取走势图数据失败: {e}")
-        return None
+    def _fetch_chart_data(self, match_unique_id, chart_type):
+        """获取走势图数据 - 简化版，使用现有 odds_trend 三点数据"""
+        return []
+
+    def _build_simplified_chart_points(self, odds_item, chart_type):
+        """从 odds_trend 数据构建简化版走势图数据点（初盘/即时/滚球三点）"""
+        points = []
+        labels = []
+
+        if chart_type in (0,):
+            # 胜平负: val1=主胜, val2=客胜
+            labels = ['初盘', '即时', '滚球']
+            keys_v1 = ['eu_init_home', 'eu_curr_home', 'eu_live_home']
+            keys_v2 = ['eu_init_away', 'eu_curr_away', 'eu_live_away']
+        elif chart_type in (1, 3):
+            # 亚让/半场亚让: val1=主队水位, val2=客队水位
+            labels = ['初盘', '即时', '滚球']
+            keys_v1 = ['eua_init_home', 'eua_curr_home', 'eua_live_home']
+            keys_v2 = ['eua_init_away', 'eua_curr_away', 'eua_live_away']
+        elif chart_type in (2, 4):
+            # 进球数/半场进球数: val1=大球, val2=小球
+            labels = ['初盘', '即时', '滚球']
+            keys_v1 = ['goal_init_big', 'goal_curr_big', 'goal_live_big']
+            keys_v2 = ['goal_init_small', 'goal_curr_small', 'goal_live_small']
+        else:
+            return []
+
+        for i, label in enumerate(labels):
+            try:
+                v1 = float(odds_item.get(keys_v1[i], 0) or 0)
+                v2 = float(odds_item.get(keys_v2[i], 0) or 0)
+                if v1 > 0 or v2 > 0:
+                    points.append({
+                        'time': label,
+                        'val1': v1,
+                        'val2': v2,
+                        'is_live': 1 if i == 2 else 0,
+                    })
+            except (ValueError, TypeError):
+                continue
+
+        return points
 
     def _parse_chart_data(self, data_str):
         points = []
@@ -243,13 +268,14 @@ class OddsTrendPanel:
         tk.Label(parent, text=f"加载失败: {msg}", font=('Microsoft YaHei', 12),
                 fg='#cc0000', bg='#ffffff').pack(expand=True)
 
-    def _render_detail_content(self, parent, soup, chart_data_str, chart_type, page_file, company_name, s, scroll_canvas):
+    def _render_detail_content(self, parent, soup, chart_data_str, chart_type, page_file, company_name, s, scroll_canvas, current_odds_item=None):
         for w in parent.winfo_children():
             w.destroy()
 
         if chart_type > 0:
-            if chart_data_str:
-                self._render_chart_canvas(parent, chart_data_str, chart_type, s, scroll_canvas)
+            points = self._build_simplified_chart_points(current_odds_item or {}, chart_type) if current_odds_item else []
+            if points and len(points) >= 2:
+                self._render_chart_canvas(parent, points, chart_type, s, scroll_canvas)
             else:
                 no_chart_frame = tk.LabelFrame(parent, text=' 走势图 ', font=('Microsoft YaHei', max(10, int(12*s)), 'bold'),
                                                 fg='#0066cc', bg='#ffffff', padx=5, pady=5)
@@ -271,8 +297,7 @@ class OddsTrendPanel:
         if scroll_canvas:
             scroll_canvas.after_idle(_after_render)
 
-    def _render_chart_canvas(self, parent, data_str, chart_type, s, scroll_canvas):
-        points = self._parse_chart_data(data_str)
+    def _render_chart_canvas(self, parent, points, chart_type, s, scroll_canvas):
         if not points:
             return
 
@@ -346,8 +371,12 @@ class OddsTrendPanel:
 
         if len(coords1) >= 4:
             canvas.create_line(coords1, fill='#e03030', width=max(1, int(2*s)), smooth=True)
+        elif len(coords1) >= 2:
+            canvas.create_line(coords1, fill='#e03030', width=max(1, int(2*s)))
         if len(coords2) >= 4:
             canvas.create_line(coords2, fill='#2060c0', width=max(1, int(2*s)), smooth=True)
+        elif len(coords2) >= 2:
+            canvas.create_line(coords2, fill='#2060c0', width=max(1, int(2*s)))
 
         step = max(1, len(points) // 8)
         for i in range(0, len(points), step):
