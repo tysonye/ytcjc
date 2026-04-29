@@ -190,8 +190,41 @@ function decodeBuffer(buffer) {
 }
 
 const directFetchBlacklist = {}
+const isDev = import.meta.env.DEV
+
+function getProxyUrl(url) {
+  if (url.includes('jc.titan007.com')) return url.replace('https://jc.titan007.com', '/titan-proxy/jc')
+  if (url.includes('zq.titan007.com')) return url.replace('https://zq.titan007.com', '/titan-proxy/zq')
+  if (url.includes('vip.titan007.com')) return url.replace('https://vip.titan007.com', '/titan-proxy/vip')
+  if (url.includes('odds.500.com')) return url.replace('https://odds.500.com', '/500-proxy')
+  if (url.includes('macauslot.com')) return url.replace('https://www.macauslot.com', '/macau-proxy')
+  return null
+}
 
 async function proxyFetch(url) {
+  if (isDev) {
+    const proxyUrl = getProxyUrl(url)
+    if (proxyUrl) {
+      try {
+        const resp = await fetch(proxyUrl)
+        const buffer = await resp.arrayBuffer()
+        const text = decodeBuffer(buffer)
+        if (text && text.length > 0) return { body: text }
+      } catch {}
+    }
+    try {
+      const resp = await fetch('/api/proxy/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }),
+      })
+      const data = await resp.json()
+      return { body: data.body || '' }
+    } catch (e) {
+      console.error('proxyFetch failed:', e)
+      return { body: '' }
+    }
+  }
   if (directFetchBlacklist[url]) return { body: '' }
   try {
     const resp = await fetch(url, { mode: 'cors', credentials: 'omit' })

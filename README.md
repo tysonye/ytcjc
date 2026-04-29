@@ -105,7 +105,109 @@ cd frontend
 npm run build
 ```
 
-## 数据源
+## 数据请求策略
+
+项目根据环境自动切换数据请求方式：
+
+| 环境 | `import.meta.env.DEV` | 请求方式 | 说明 |
+|------|---|---|---|
+| 开发 `npm run dev` | `true` | Vite 代理 → 服务器 IP | 绕过 CORS，通过 Vite 代理转发到外部数据源 |
+| 生产 `npm run build` | `false` | 用户浏览器直连 | 用户 IP 直接请求数据源，被 CORS 拦截则不显示 |
+
+**无需手动切换**，代码通过 `import.meta.env.DEV` 自动判断。
+
+### 生产部署前检查清单
+
+- [ ] 确认 `npm run build` 而非 `npm run dev` 部署
+- [ ] 确认 Nginx 未配置外部数据源代理（数据由用户浏览器直连）
+- [ ] 确认 `vite.config.js` 中的 `server.proxy` 仅用于开发，不会影响构建产物
+- [ ] 如需服务端代理（因 CORS 拦截导致数据缺失），在 Nginx 层添加反向代理规则
+
+### 如果生产环境需要服务端代理
+
+若外部数据源不允许跨域，用户浏览器直连会被 CORS 拦截，需选择以下方案之一：
+
+#### 方案 A：边缘计算代理（推荐，成本极低）
+
+使用 Cloudflare Workers / Vercel Edge / 阿里云函数计算 作为轻量代理层，为外部数据源添加 CORS 响应头。
+
+**优势**：
+- 每月免费额度足够用（Cloudflare 10 万次/天）
+- 不经过自己的服务器，零服务器流量成本
+- 访问速度和直连几乎无差异（0-50ms 延迟差异）
+- 部署代码仅几行
+
+**Cloudflare Workers 示例代码**：
+
+```javascript
+// 部署到 Cloudflare Workers
+export default {
+  async fetch(request) {
+    const url = new URL(request.url).pathname
+    const target = 'https://zq.titan007.com' + url
+    const resp = await fetch(target, {
+      headers: {
+        'Referer': 'https://zq.titan007.com/',
+        'Origin': 'https://zq.titan007.com',
+        'User-Agent': 'Mozilla/5.0'
+      }
+    })
+    const headers = new Headers(resp.headers)
+    headers.set('Access-Control-Allow-Origin', '*')
+    return new Response(resp.body, { headers })
+  }
+}
+```
+
+**前端配合修改**：
+
+将 `MatchDetail.vue` 中的 `proxyFetch` 改为请求 Workers 域名：
+
+```javascript
+// 生产环境：通过 Workers 代理
+const WORKERS_URL = 'https://your-workers.your-account.workers.dev'
+
+async function proxyFetch(url) {
+  if (url.includes('titan007.com')) {
+    const workerUrl = WORKERS_URL + new URL(url).pathname
+    try {
+      const resp = await fetch(workerUrl, { mode: 'cors' })
+      const buffer = await resp.arrayBuffer()
+      const text = decodeBuffer(buffer)
+      if (text && text.length > 0) return { body: text }
+    } catch {}
+  }
+  // ... 其他数据源同理
+  return { body: '' }
+}
+```
+
+#### 方案 B：Nginx 反向代理
+
+在自己的服务器 Nginx 上添加代理规则：
+
+```nginx
+location /titan-proxy/zq/ {
+    proxy_pass https://zq.titan007.com/;
+    proxy_set_header Referer https://zq.titan007.com/;
+    proxy_set_header Origin https://zq.titan007.com;
+}
+
+location /titan-proxy/jc/ {
+    proxy_pass https://jc.titan007.com/;
+    proxy_set_header Referer https://jc.titan007.com/;
+}
+```
+
+**缺点**：会消耗自己服务器的流量。
+
+### 方案对比
+
+| | 边缘计算（推荐） | Nginx 代理 | 用户直连 |
+|--|------|------|------|
+| 成本 | 免费额度足够用 | 消耗服务器流量 | 零成本 |
+| 速度 | 几乎无差异（0-50ms） | 慢 100-200ms | 最快（但被 CORS 拦截） |
+| 数据完整性 | ✅ 完整 | ✅ 完整 | ❌ 缺失 |
 
 - 比赛列表与竞彩指数：jc.titan007.com
 - 赔率分析与走势：zq.titan007.com
