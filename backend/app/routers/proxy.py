@@ -67,9 +67,10 @@ async def proxy_request(req: ProxyRequest):
         raise HTTPException(status_code=502, detail=f"请求失败: {str(e)}")
 
 
-@router.post("/fetch")
-async def proxy_fetch(req: ProxyRequest):
-    return await proxy_request(req)
+# 已废弃 - 前端现在直接使用 Vercel 边缘代理
+# @router.post("/fetch")
+# async def proxy_fetch(req: ProxyRequest):
+#     return await proxy_request(req)
 
 
 @router.post("/ai-chat")

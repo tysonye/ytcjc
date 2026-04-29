@@ -10,6 +10,8 @@ const routes = [
     children: [
       { path: '', name: 'Home', component: () => import('../views/Home.vue') },
       { path: 'match/:id', name: 'MatchDetail', component: () => import('../views/MatchDetail.vue') },
+      { path: 'test', name: 'TestPage', component: () => import('../views/TestPage.vue') },
+      { path: 'proxy-debug', name: 'ProxyDebug', component: () => import('../views/ProxyDebug.vue') },
       {
         path: 'member',
         name: 'MemberCenter',

@@ -189,8 +189,8 @@ function decodeBuffer(buffer) {
   return new TextDecoder(encoding).decode(buffer)
 }
 
-const directFetchBlacklist = {}
-const isDev = import.meta.env.DEV
+// Cloudflare Workers 代理配置 - 使用 Vercel 自定义域名
+const WORKERS_URL = 'https://jc.xibai.xin'
 
 function getProxyUrl(url) {
   if (url.includes('jc.titan007.com')) return url.replace('https://jc.titan007.com', '/titan-proxy/jc')
@@ -202,41 +202,33 @@ function getProxyUrl(url) {
 }
 
 async function proxyFetch(url) {
-  if (isDev) {
-    const proxyUrl = getProxyUrl(url)
-    if (proxyUrl) {
-      try {
-        const resp = await fetch(proxyUrl)
-        const buffer = await resp.arrayBuffer()
-        const text = decodeBuffer(buffer)
-        if (text && text.length > 0) return { body: text }
-      } catch {}
-    }
-    try {
-      const resp = await fetch('/api/proxy/fetch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }),
-      })
-      const data = await resp.json()
-      return { body: data.body || '' }
-    } catch (e) {
-      console.error('proxyFetch failed:', e)
-      return { body: '' }
-    }
+  const proxyUrl = getProxyUrl(url)
+  
+  if (!proxyUrl || !WORKERS_URL) {
+    throw new Error('No proxy available for this URL')
   }
-  if (directFetchBlacklist[url]) return { body: '' }
-  try {
-    const resp = await fetch(url, { mode: 'cors', credentials: 'omit' })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const buffer = await resp.arrayBuffer()
-    const text = decodeBuffer(buffer)
-    if (text && text.length > 0) return { body: text }
-    throw new Error('empty response')
-  } catch {
-    directFetchBlacklist[url] = true
-    return { body: '' }
+  
+  const workerUrl = WORKERS_URL + proxyUrl
+  
+  const resp = await fetch(workerUrl, {
+    mode: 'cors',
+    headers: {
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
+    }
+  })
+  
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}`)
   }
+  
+  const buffer = await resp.arrayBuffer()
+  const text = decodeBuffer(buffer)
+  
+  if (!text || text.length === 0) {
+    throw new Error('Empty response from proxy')
+  }
+  
+  return { body: text }
 }
 
 async function fetchMatchDetail() {

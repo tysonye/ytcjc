@@ -1,0 +1,47 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/titan-proxy/jc/(.*)",
+      "destination": "/api/proxy?url=https://jc.titan007.com/$1"
+    },
+    {
+      "source": "/titan-proxy/zq/(.*)",
+      "destination": "/api/proxy?url=https://zq.titan007.com/$1"
+    },
+    {
+      "source": "/titan-proxy/vip/(.*)",
+      "destination": "/api/proxy?url=https://vip.titan007.com/$1"
+    },
+    {
+      "source": "/500-proxy/(.*)",
+      "destination": "/api/proxy?url=https://odds.500.com/$1"
+    },
+    {
+      "source": "/macau-proxy/(.*)",
+      "destination": "/api/proxy?url=https://www.macauslot.com/$1"
+    },
+    {
+      "source": "/",
+      "destination": "/api/index"
+    }
+  ]
+}

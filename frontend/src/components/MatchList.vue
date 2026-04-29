@@ -90,7 +90,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -103,6 +103,8 @@ const loading = ref(false)
 const matches = ref([])
 const filterLeague = ref('')
 const filterStatus = ref('')
+const REFRESH_INTERVAL = 30000 // 每 30 秒自动刷新
+let refreshTimer = null
 
 const detailVisible = ref(false)
 const popupStyle = ref({})
@@ -207,22 +209,12 @@ async function fetchTitanMatches() {
     if (isToday(date)) {
       let liveText = ''
       let resultText = ''
-      try {
-        const [liveResp, resultResp] = await Promise.all([
-          fetch(`/titan-proxy/jc/xml/bf_jc.txt?${Date.now()}`),
-          fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`),
-        ])
-        liveText = await decodeResp(liveResp)
-        resultText = await decodeResp(resultResp)
-      } catch {}
-      if (!liveText) {
-        const resp = await fetch('/api/proxy/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: `https://jc.titan007.com/xml/bf_jc.txt?${Date.now()}` }) })
-        if (resp.ok) { const d = await resp.json(); liveText = d.body || '' }
-      }
-      if (!resultText) {
-        const resp = await fetch('/api/proxy/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: `https://jc.titan007.com/handle/JcResult.aspx?d=${date}&${Date.now()}` }) })
-        if (resp.ok) { const d = await resp.json(); resultText = d.body || '' }
-      }
+      const [liveResp, resultResp] = await Promise.all([
+        fetch(`/titan-proxy/jc/xml/bf_jc.txt?${Date.now()}`),
+        fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`),
+      ])
+      liveText = await decodeResp(liveResp)
+      resultText = await decodeResp(resultResp)
       const liveList = parseTitanData(liveText)
       const resultList = parseTitanData(resultText)
       const existIds = new Set(liveList.map(m => m.schedule_id))
@@ -230,15 +222,8 @@ async function fetchTitanMatches() {
       matches.value = merged
       if (merged.length > 0 && !props.selectedId) selectMatch(merged[0])
     } else {
-      let text = ''
-      try {
-        const resp = await fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`)
-        if (resp.ok) text = await decodeResp(resp)
-      } catch {}
-      if (!text) {
-        const resp = await fetch('/api/proxy/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: `https://jc.titan007.com/handle/JcResult.aspx?d=${date}&${Date.now()}` }) })
-        if (resp.ok) { const d = await resp.json(); text = d.body || '' }
-      }
+      const resp = await fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`)
+      const text = await decodeResp(resp)
       if (!text) { matches.value = []; return }
       parseTitanList(text)
     }
@@ -469,7 +454,20 @@ function onPopupLeave() {
   }, 100)
 }
 
-onMounted(fetchMatches)
+onMounted(() => {
+  fetchMatches()
+  // 启动定时刷新
+  refreshTimer = setInterval(() => {
+    fetchMatches()
+  }, REFRESH_INTERVAL)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+})
 
 watch(() => props.matchDate, () => {
   filterLeague.value = ''

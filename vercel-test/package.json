@@ -1,0 +1,7 @@
+{
+  "name": "jc-proxy-vercel-test",
+  "version": "1.0.0",
+  "scripts": {
+    "deploy": "vercel --prod --yes"
+  }
+}
