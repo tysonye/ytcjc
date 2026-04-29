@@ -1,4 +1,12 @@
 __pycache__/
 *.pyc
 *.pyo
+*.db
 .trae/
+.env
+*.env.local
+
+node_modules/
+dist/
+
+*.log
