@@ -765,7 +765,7 @@ function parseAnalysisPage(html) {
       const seasonMatch = html.match(/本賽季數據統計比較[\s\S]*?<\/div>/) || html.match(/本赛季数据统计比较[\s\S]*?<\/div>/)
       if (seasonMatch) {
         const seasonDoc = parser.parseFromString(seasonMatch[0], 'text/html')
-        const seasonText = seasonDoc.textContent
+        const seasonText = seasonDoc?.textContent || ''
         function extractStat(label, text) {
           const re = new RegExp(label + '[^\\d]*([\\d.]+)')
           const m = text.match(re)
@@ -781,24 +781,26 @@ function parseAnalysisPage(html) {
           const m = text.match(re)
           return m ? m[1] : ''
         }
-        const homeIdx = seasonText.indexOf('主隊') >= 0 ? seasonText.indexOf('主隊') : seasonText.indexOf('主队')
-        const awayIdx = seasonText.indexOf('客隊') >= 0 ? seasonText.indexOf('客隊') : seasonText.indexOf('客队')
-        if (homeIdx >= 0 && awayIdx >= 0) {
-          const homeText = seasonText.substring(homeIdx, awayIdx)
-          const awayText = seasonText.substring(awayIdx)
-          data.season_stats = {
-            home: {
-              win_pct: extractPctStat('總勝|总胜', homeText), draw_pct: extractPctStat('平', homeText), lose_pct: extractPctStat('負|负', homeText),
-              home_win_pct: extractPctStat('主場勝|主场胜', homeText),
-              total_gf: extractStat('進球總數|进球总数', homeText), total_ga: extractStat('失球總數|失球总数', homeText),
-              avg_gf: extractStat('平均進球|平均进球', homeText), avg_ga: extractStat('平均失球', homeText),
-            },
-            away: {
-              win_pct: extractPctStat('總勝|总胜', awayText), draw_pct: extractPctStat('平', awayText), lose_pct: extractPctStat('負|负', awayText),
-              away_win_pct: extractPctStat('客場勝|客场胜', awayText),
-              total_gf: extractStat('進球總數|进球总数', awayText), total_ga: extractStat('失球總數|失球总数', awayText),
-              avg_gf: extractStat('平均進球|平均进球', awayText), avg_ga: extractStat('平均失球', awayText),
-            },
+        if (seasonText) {
+          const homeIdx = seasonText.indexOf('主隊') >= 0 ? seasonText.indexOf('主隊') : seasonText.indexOf('主队')
+          const awayIdx = seasonText.indexOf('客隊') >= 0 ? seasonText.indexOf('客隊') : seasonText.indexOf('客队')
+          if (homeIdx >= 0 && awayIdx >= 0) {
+            const homeText = seasonText.substring(homeIdx, awayIdx)
+            const awayText = seasonText.substring(awayIdx)
+            data.season_stats = {
+              home: {
+                win_pct: extractPctStat('總勝 | 总胜', homeText), draw_pct: extractPctStat('平', homeText), lose_pct: extractPctStat('負 | 负', homeText),
+                home_win_pct: extractPctStat('主場勝 | 主场胜', homeText),
+                total_gf: extractStat('進球總數 | 进球总数', homeText), total_ga: extractStat('失球總數 | 失球总数', homeText),
+                avg_gf: extractStat('平均進球 | 平均进球', homeText), avg_ga: extractStat('平均失球', homeText),
+              },
+              away: {
+                win_pct: extractPctStat('總勝 | 总胜', awayText), draw_pct: extractPctStat('平', awayText), lose_pct: extractPctStat('負 | 负', awayText),
+                away_win_pct: extractPctStat('客場勝 | 客场胜', awayText),
+                total_gf: extractStat('進球總數 | 进球总数', awayText), total_ga: extractStat('失球總數 | 失球总数', awayText),
+                avg_gf: extractStat('平均進球 | 平均进球', awayText), avg_ga: extractStat('平均失球', awayText),
+              },
+            }
           }
         }
       }
