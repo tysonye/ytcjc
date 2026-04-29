@@ -174,66 +174,36 @@ function formatTime(t) {
   } catch { return t }
 }
 
-async function proxyFetch(url) {
-  const proxyUrl = getProxyUrl(url)
-  if (proxyUrl) {
+function decodeBuffer(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let encoding = 'utf-8'
+  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    encoding = 'utf-8'
+  } else {
     try {
-      const resp = await fetch(proxyUrl)
-      const buffer = await resp.arrayBuffer()
-      const bytes = new Uint8Array(buffer)
-      const ct = (resp.headers.get('content-type') || '').toLowerCase()
-      let encoding = 'utf-8'
-      if (ct.includes('charset=gb') || ct.includes('charset=gb2312') || ct.includes('charset=gbk') || ct.includes('charset=gb18030')) {
-        encoding = 'gbk'
-      } else if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
-        encoding = 'utf-8'
-      } else {
-        const utf8Test = new TextDecoder('utf-8', { fatal: true }).decode(buffer)
-        encoding = 'utf-8'
-        void utf8Test
-      }
-      const text = new TextDecoder(encoding).decode(buffer)
-      if (text && text.length > 0) return { body: text }
-    } catch (e) {
-      try {
-        const resp2 = await fetch(proxyUrl)
-        const buffer2 = await resp2.arrayBuffer()
-        const text2 = new TextDecoder('gbk').decode(buffer2)
-        if (text2 && text2.length > 0) return { body: text2 }
-      } catch {}
+      new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+    } catch {
+      encoding = 'gbk'
     }
   }
-  try {
-    const resp = await fetch('/api/proxy/fetch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }),
-    })
-    const data = await resp.json()
-    return { body: data.body || '' }
-  } catch (e) {
-    console.error('proxyFetch failed:', e)
-    return { body: '' }
-  }
+  return new TextDecoder(encoding).decode(buffer)
 }
 
-function getProxyUrl(url) {
-  if (url.includes('jc.titan007.com')) {
-    return url.replace('https://jc.titan007.com', '/titan-proxy/jc')
+const directFetchBlacklist = {}
+
+async function proxyFetch(url) {
+  if (directFetchBlacklist[url]) return { body: '' }
+  try {
+    const resp = await fetch(url, { mode: 'cors', credentials: 'omit' })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const buffer = await resp.arrayBuffer()
+    const text = decodeBuffer(buffer)
+    if (text && text.length > 0) return { body: text }
+    throw new Error('empty response')
+  } catch {
+    directFetchBlacklist[url] = true
+    return { body: '' }
   }
-  if (url.includes('zq.titan007.com')) {
-    return url.replace('https://zq.titan007.com', '/titan-proxy/zq')
-  }
-  if (url.includes('vip.titan007.com')) {
-    return url.replace('https://vip.titan007.com', '/titan-proxy/vip')
-  }
-  if (url.includes('odds.500.com')) {
-    return url.replace('https://odds.500.com', '/500-proxy')
-  }
-  if (url.includes('macauslot.com')) {
-    return url.replace('https://www.macauslot.com', '/macau-proxy')
-  }
-  return null
 }
 
 async function fetchMatchDetail() {
