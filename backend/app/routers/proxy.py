@@ -1,11 +1,15 @@
 from urllib.parse import urlparse
 import re
 import httpx, json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict
+from sqlalchemy.orm import Session
 
 from app.config import PROXY_ALLOWED_DOMAINS
+from app.database import get_db
+from app.models import User
+from app.services.auth_service import get_current_user
 
 router = APIRouter(prefix="/api/proxy", tags=["CORS代理"])
 
@@ -74,9 +78,10 @@ async def proxy_request(req: ProxyRequest):
 
 
 @router.post("/ai-chat")
-async def ai_chat_proxy(req: Dict):
+async def ai_chat_proxy(req: Dict, current_user: User = Depends(get_current_user)):
     message = req.get("message", "")
     context = req.get("context", "")
+    settings = req.get("settings", {})
 
     from app.config import AI_BASE_URL, AI_API_KEY
     if not AI_BASE_URL or not AI_API_KEY:
@@ -85,25 +90,84 @@ async def ai_chat_proxy(req: Dict):
         }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            system_prompt = """你是一位专业的足球数据分析分析师，精通竞彩赔率分析、球队实力评估、历史交锋分析。
-请根据用户提供的信息给出专业、客观的分析建议。
-回答时使用中文，格式清晰，适当使用表格展示数据对比。"""
+        preference_labels = {
+            'odds_trend': '赔率走势分析',
+            'head_to_head': '历史交锋记录',
+            'recent_form': '球队近期状态',
+            'home_away': '主客场战绩差异',
+            'injury': '伤停/阵容信息',
+            'standings': '联赛积分排名',
+            'fund_flow': '盘口资金流向',
+            'weather': '天气/场地影响',
+        }
+
+        preset = settings.get('preset', 'balanced')
+        preferences = settings.get('preferences', ['odds_trend', 'head_to_head'])
+        reply_format = settings.get('replyFormat', 'detailed')
+        reply_language = settings.get('replyLanguage', 'zh')
+        custom_prompt = settings.get('customPrompt', '')
+        temperature = settings.get('temperature', 0.7)
+
+        base_prompt = "你是一位专业的足球数据分析分析师，精通竞彩赔率分析、球队实力评估、历史交锋分析。"
+
+        if preset == 'conservative':
+            base_prompt += "你的分析风格偏稳健，基于数据给出保守建议，强调风险提示，不轻易下结论。"
+        elif preset == 'aggressive':
+            base_prompt += "你的分析风格偏激进，大胆预测，关注冷门和爆冷机会，善于发现盘口异动和资金流向异常。"
+        else:
+            base_prompt += "你的分析风格均衡，兼顾数据与直觉判断，给出平衡建议。"
+
+        focus_items = [preference_labels.get(p, p) for p in preferences if p in preference_labels]
+        if focus_items:
+            base_prompt += f"\n请在分析时重点关注以下维度：{'、'.join(focus_items)}。"
+
+        if reply_format == 'concise':
+            base_prompt += "\n请简洁回复，仅给出结论和关键数据，不要冗长的分析过程。"
+        else:
+            base_prompt += "\n请详细分析，包含完整的分析过程、数据支撑、结论和建议。"
+
+        if reply_language == 'bilingual':
+            base_prompt += "\n请使用中英双语回复。"
+        else:
+            base_prompt += "\n请使用中文回复。"
+
+        if custom_prompt:
+            base_prompt += f"\n\n用户追加指令：{custom_prompt}"
+
+        base_prompt += "\n回答时格式清晰，适当使用表格展示数据对比。"
+
+        max_tokens = 512 if reply_format == 'concise' else 1024
+
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": base_prompt},
             ]
             if context:
                 messages.append({"role": "user", "content": f"[上下文信息] {context}"})
                 messages.append({"role": "assistant", "content": "已了解上下文信息，请继续提问。"})
             messages.append({"role": "user", "content": message})
 
-            resp = await client.post(
+            full_content = ""
+            async with client.stream(
+                "POST",
                 f"{AI_BASE_URL}/chat/completions",
                 headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "gpt-4o-mini", "messages": messages, "max_tokens": 1024, "temperature": 0.7},
-            )
-            data = resp.json()
-            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "无法获取回复")
-            return {"reply": reply}
+                json={"model": "auto", "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": True},
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            import json as _json
+                            data = _json.loads(data_str)
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_content += content
+                        except Exception:
+                            pass
+            return {"reply": full_content or "无法获取回复"}
     except Exception as e:
         return {"reply": f"AI服务调用失败: {str(e)}"}

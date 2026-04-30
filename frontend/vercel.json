@@ -3,48 +3,40 @@
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type"
-        }
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
       ]
     }
   ],
   "rewrites": [
     {
-      "source": "/titan-proxy/jc/(.*)",
-      "destination": "/api/proxy?url=https://jc.titan007.com/$1"
+      "source": "/titan-proxy/jc/:path*",
+      "destination": "/api/proxy?url=https://jc.titan007.com/:path*"
     },
     {
-      "source": "/titan-proxy/zq/(.*)",
-      "destination": "/api/proxy?url=https://zq.titan007.com/$1"
+      "source": "/titan-proxy/zq/:path*",
+      "destination": "/api/proxy?url=https://zq.titan007.com/:path*"
     },
     {
-      "source": "/titan-proxy/vip/(.*)",
-      "destination": "/api/proxy?url=https://vip.titan007.com/$1"
+      "source": "/titan-proxy/vip/:path*",
+      "destination": "/api/proxy?url=https://vip.titan007.com/:path*"
     },
     {
-      "source": "/500-proxy/(.*)",
-      "destination": "/api/proxy?url=https://odds.500.com/$1"
+      "source": "/500-proxy/:path*",
+      "destination": "/api/proxy?url=https://odds.500.com/:path*"
     },
     {
-      "source": "/macau-proxy/(.*)",
-      "destination": "/api/proxy?url=https://www.macauslot.com/$1"
+      "source": "/titan-proxy/info/:path*",
+      "destination": "/api/proxy?url=https://info.titan007.com/:path*"
     },
     {
-      "source": "/",
-      "destination": "/api/index"
+      "source": "/macau-proxy/:path*",
+      "destination": "/api/proxy?url=https://www.macauslot.com/:path*"
+    },
+    {
+      "source": "/sporttery-proxy/:path*",
+      "destination": "/api/proxy?url=https://webapi.sporttery.cn/:path*"
     }
-  ],
-  "analytics": {
-    "enabled": true
-  }
+  ]
 }

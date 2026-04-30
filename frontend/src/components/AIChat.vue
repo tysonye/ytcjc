@@ -1,10 +1,10 @@
 <template>
-  <div class="ai-chat" :class="{ expanded: isExpanded }">
-    <div class="chat-toggle" @click="isExpanded = !isExpanded">
+  <div class="ai-chat" :class="{ expanded: isExpanded, inline: inline }">
+    <div v-if="!inline" class="chat-toggle" @click="isExpanded = !isExpanded">
       <span class="toggle-label">AI 足球分析师</span>
       <el-icon :class="{ rotated: isExpanded }"><ArrowDown /></el-icon>
     </div>
-    <div class="chat-body" v-show="isExpanded">
+    <div class="chat-body" v-show="inline || isExpanded">
       <div class="chat-messages" ref="msgContainer">
         <div v-for="(msg, i) in messages" :key="i" class="message" :class="msg.role">
           <div class="msg-avatar">
@@ -27,17 +27,47 @@
 </template>
 
 <script setup>
-import { ref, nextTick, defineProps } from 'vue'
+import { ref, nextTick, defineProps, watch, computed } from 'vue'
 import { ArrowDown, ChatDotRound, User } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { ElMessage } from 'element-plus'
+import { useAISettingsStore } from '../stores/aiSettings'
+import { useUserStore } from '../stores/user'
 
-const props = defineProps({ matchId: { type: [String, Number], default: '' } })
+const props = defineProps({ matchId: { type: [String, Number], default: '' }, inline: { type: Boolean, default: false }, matchContext: { type: String, default: '' } })
+
+const aiSettings = useAISettingsStore()
+const userStore = useUserStore()
 
 const isExpanded = ref(false)
+const welcomeMsg = computed(() => {
+  if (props.matchContext) {
+    return '您好！我是AI足球分析师。\n\n当前比赛：' + props.matchContext + '\n\n您可以直接询问关于这场比赛的分析，例如赔率走势、历史交锋、球队状态等。'
+  }
+  return '您好！我是AI足球分析师，可以帮您分析比赛赔率走势、历史交锋、球队状态等信息。\n\n请从左侧列表选择一场比赛，我将为您进行针对性分析。'
+})
 const messages = ref([
-  { role: 'assistant', content: '您好！我是AI足球分析师，可以帮您分析比赛赔率走势、历史交锋、球队状态等信息。请问有什么可以帮助您的？' }
+  { role: 'assistant', content: welcomeMsg.value }
 ])
+const welcomeAnimating = ref(false)
+
+watch(welcomeMsg, (val) => {
+  if (messages.value.length === 1 && messages.value[0].role === 'assistant') {
+    welcomeAnimating.value = true
+    messages.value[0].content = ''
+    const chars = val.split('')
+    let idx = 0
+    const timer = setInterval(() => {
+      if (idx < chars.length) {
+        messages.value[0].content += chars[idx]
+        idx++
+      } else {
+        clearInterval(timer)
+        welcomeAnimating.value = false
+      }
+    }, 20)
+  }
+})
 const inputText = ref('')
 const sending = ref(false)
 const typing = ref(false)
@@ -57,11 +87,24 @@ async function send() {
   typing.value = true
 
   try {
+    const headers = { 'Content-Type': 'application/json' }
+    if (userStore.token) {
+      headers['Authorization'] = `Bearer ${userStore.token}`
+    }
     const resp = await fetch('/api/proxy/ai-chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, context: props.matchId ? `当前查看的比赛ID: ${props.matchId}` : '' }),
+      headers,
+      body: JSON.stringify({
+        message: text,
+        context: props.matchContext || (props.matchId ? `当前查看的比赛ID: ${props.matchId}` : ''),
+        settings: aiSettings.getSettings(),
+      }),
     })
+    if (resp.status === 401) {
+      typing.value = false
+      messages.value.push({ role: 'assistant', content: '登录已过期，请重新登录后使用AI预测功能。' })
+      return
+    }
     const data = await resp.json()
     typing.value = false
     messages.value.push({ role: 'assistant', content: data.reply || '抱歉，暂时无法回答您的问题。' })
@@ -101,6 +144,15 @@ function scrollToBottom() {
     bottom: 65px;
   }
   &.expanded { max-height: 520px; }
+  &.inline {
+    position: static;
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    height: 100%;
+    .chat-body { height: 100%; }
+  }
 }
 
 .chat-toggle {

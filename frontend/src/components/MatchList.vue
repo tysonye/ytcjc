@@ -1,5 +1,5 @@
 <template>
-  <div class="match-list">
+  <div class="match-list" v-loading="loading">
     <div class="filter-bar">
       <el-select v-model="filterLeague" placeholder="全部联赛" clearable size="small" style="width:120px" :teleported="true">
         <el-option label="全部比赛" value="" />
@@ -14,7 +14,7 @@
       <el-button size="small" :icon="Refresh" @click="fetchMatches" :loading="loading" circle />
     </div>
 
-    <div class="match-cards" v-loading="loading">
+    <div class="match-cards">
       <div v-if="filteredMatches.length === 0 && !loading" class="empty-tip">暂无比赛数据</div>
       <div v-for="m in filteredMatches" :key="m.schedule_id" class="match-card"
            :class="{ selected: selectedId === m.schedule_id, live: isLive(m) }"
@@ -92,6 +92,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
+import { titanCache, refresher, REFRESH_INTERVAL } from '../utils/fiveMatchMapper'
 
 const props = defineProps({
   selectedId: [String, Number],
@@ -103,8 +104,9 @@ const loading = ref(false)
 const matches = ref([])
 const filterLeague = ref('')
 const filterStatus = ref('')
-const REFRESH_INTERVAL = 30000 // 每 30 秒自动刷新
+const getRandomRefreshInterval = () => Math.floor(Math.random() * (5 - 1 + 1) + 1) * 60000
 let refreshTimer = null
+let minuteTimer = null
 
 const detailVisible = ref(false)
 const popupStyle = ref({})
@@ -205,7 +207,16 @@ async function decodeResp(resp, encoding = 'utf-8') {
 
 async function fetchTitanMatches() {
   const date = props.matchDate
+
+  // 先查缓存
+  const cached = titanCache.get(date)
+  if (cached) {
+    matches.value = cached
+    if (cached.length > 0 && !props.selectedId) selectMatch(cached[0])
+  }
+
   try {
+    let result = []
     if (isToday(date)) {
       let liveText = ''
       let resultText = ''
@@ -218,19 +229,80 @@ async function fetchTitanMatches() {
       const liveList = parseTitanData(liveText)
       const resultList = parseTitanData(resultText)
       const existIds = new Set(liveList.map(m => m.schedule_id))
-      const merged = [...liveList, ...resultList.filter(m => !existIds.has(m.schedule_id))]
-      matches.value = merged
-      if (merged.length > 0 && !props.selectedId) selectMatch(merged[0])
+      result = [...liveList, ...resultList.filter(m => !existIds.has(m.schedule_id))]
     } else {
       const resp = await fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`)
       const text = await decodeResp(resp)
       if (!text) { matches.value = []; return }
-      parseTitanList(text)
+      result = parseTitanData(text)
     }
+
+    matches.value = result
+    titanCache.set(date, result)
+    if (result.length > 0 && !props.selectedId) selectMatch(result[0])
   } catch (e) {
     console.error('请求球探数据失败:', e)
-    matches.value = []
+    if (!cached) matches.value = []
   }
+}
+
+function startTitanMatchesRefresh(date) {
+  const hasLiveMatch = matches.value.some(m => isLive(m))
+  const interval = hasLiveMatch ? REFRESH_INTERVAL.titanMatches.live : REFRESH_INTERVAL.titanMatches.normal
+
+  refresher.stop(`titan_${date}`)
+  refresher.start(
+    `titan_${date}`,
+    async () => {
+      if (isToday(date)) {
+        let liveText = ''
+        let resultText = ''
+        const [liveResp, resultResp] = await Promise.all([
+          fetch(`/titan-proxy/jc/xml/bf_jc.txt?${Date.now()}`),
+          fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`),
+        ])
+        liveText = await decodeResp(liveResp)
+        resultText = await decodeResp(resultResp)
+        const liveList = parseTitanData(liveText)
+        const resultList = parseTitanData(resultText)
+        const existIds = new Set(liveList.map(m => m.schedule_id))
+        return [...liveList, ...resultList.filter(m => !existIds.has(m.schedule_id))]
+      } else {
+        const resp = await fetch(`/titan-proxy/jc/handle/JcResult.aspx?d=${date}&${Date.now()}`)
+        const text = await decodeResp(resp)
+        if (!text) return []
+        return parseTitanData(text)
+      }
+    },
+    titanCache,
+    interval,
+    (freshData) => {
+      matches.value = freshData
+    }
+  )
+}
+
+function toSimplified(str) {
+  if (!str) return str
+  const t2s = {
+    '聯': '联', '賽': '赛', '盃': '杯', '亞': '亚', '歐': '欧', '國': '国',
+    '會': '会', '隊': '队', '級': '级', '區': '区', '東': '东', '風': '风',
+    '場': '场', '進': '进', '勝': '胜', '負': '负', '時': '时', '間': '间',
+    '員': '员', '門': '门', '開': '开', '關': '关', '後': '后', '來': '来',
+    '個': '个', '們': '们', '這': '这', '說': '说', '話': '话', '對': '对',
+    '錯': '错', '長': '长', '頭': '头', '發': '发', '現': '现', '見': '见',
+    '馬': '马', '鳥': '鸟', '魚': '鱼', '龍': '龙', '車': '车', '電': '电',
+    '機': '机', '線': '线', '網': '网', '紙': '纸', '鐵': '铁', '銅': '铜',
+    '錢': '钱', '銀': '银', '門': '门', '問': '问', '聞': '闻', '聲': '声',
+    '聽': '听', '讀': '读', '寫': '写', '書': '书', '畫': '画', '紅': '红',
+    '綠': '绿', '藍': '蓝', '黃': '黄', '黑': '黑', '白': '白', '難': '难',
+    '過': '过', '還': '还', '讓': '让', '給': '给', '請': '请', '謝': '谢',
+    '點': '点', '數': '数', '學': '学', '愛': '爱', '親': '亲', '認': '认',
+    '識': '识', '語': '语', '論': '论', '課': '课', '題': '题', '義': '义',
+    '務': '务', '總': '总', '統': '统', '計': '计', '劃': '划', '則': '则',
+    '創': '创', '製': '制', '務': '务', '務': '务',
+  }
+  return str.split('').map(c => t2s[c] || c).join('')
 }
 
 function parseTitanData(text) {
@@ -268,21 +340,29 @@ function parseTitanData(text) {
 
     const state = parseInt(f[3]) || 0
     let minute = ''
+    let actual_start_ts = 0
     if (state === 1 || state === 3 || state === 4) {
       const actualStartStr = f[2] || ''
       const ap = actualStartStr.split(',')
       if (ap.length >= 6) {
         const startDate = new Date(parseInt(ap[0]), parseInt(ap[1]), parseInt(ap[2]), parseInt(ap[3]), parseInt(ap[4]), parseInt(ap[5]))
+        actual_start_ts = startDate.getTime()
         const elapsed = Math.floor((Date.now() - startDate.getTime()) / 60000)
         if (state === 1) {
-          minute = Math.min(Math.max(elapsed, 1), 45)
-          if (elapsed > 45) minute = '45+'
+          const goTime = elapsed
+          if (goTime > 45) minute = '45+'
+          else if (goTime < 1) minute = 1
+          else minute = goTime
         } else if (state === 3) {
-          minute = Math.min(Math.max(elapsed, 46), 90)
-          if (elapsed > 90) minute = '90+'
+          const goTime = elapsed + 46
+          if (goTime > 90) minute = '90+'
+          else if (goTime < 46) minute = 46
+          else minute = goTime
         } else if (state === 4) {
-          minute = Math.min(Math.max(elapsed, 91), 120)
-          if (elapsed > 120) minute = '120+'
+          const goTime = elapsed + 91
+          if (goTime > 120) minute = '120+'
+          else if (goTime < 91) minute = 91
+          else minute = goTime
         }
       }
     }
@@ -291,14 +371,17 @@ function parseTitanData(text) {
       schedule_id: f[0],
       match_unique_id: f[0],
       match_id: matchId,
-      league: leagueInfo[leagueId] || '',
+      league: toSimplified(leagueInfo[leagueId]) || '',
       league_id: leagueId,
-      home_team: homeTeamFull.includes(',') ? homeTeamFull.split(',')[2]?.trim() || homeTeamFull.split(',')[0].trim() : homeTeamFull.trim(),
-      away_team: awayTeamFull.includes(',') ? awayTeamFull.split(',')[2]?.trim() || awayTeamFull.split(',')[0].trim() : awayTeamFull.trim(),
+      home_team: toSimplified(homeTeamFull.includes(',') ? homeTeamFull.split(',')[2]?.trim() || homeTeamFull.split(',')[0].trim() : homeTeamFull.trim()),
+      away_team: toSimplified(awayTeamFull.includes(',') ? awayTeamFull.split(',')[2]?.trim() || awayTeamFull.split(',')[0].trim() : awayTeamFull.trim()),
+      home_team_full: toSimplified(homeTeamFull.includes(',') ? homeTeamFull.split(',')[0].trim() : homeTeamFull.trim()),
+      away_team_full: toSimplified(awayTeamFull.includes(',') ? awayTeamFull.split(',')[0].trim() : awayTeamFull.trim()),
       start_time: startTimeStr,
       match_time: matchTime,
       status: state,
       minute,
+      actual_start_ts,
       home_score: f[11] || '',
       away_score: f[12] || '',
       home_half_score: f[13] || '',
@@ -454,25 +537,56 @@ function onPopupLeave() {
   }, 100)
 }
 
+function updateLiveMinutes() {
+  matches.value.forEach(m => {
+    if ((m.status === 1 || m.status === 3 || m.status === 4) && m.actual_start_ts) {
+      const elapsed = Math.floor((Date.now() - m.actual_start_ts) / 60000)
+      if (m.status === 1) {
+        const goTime = elapsed
+        m.minute = goTime > 45 ? '45+' : goTime < 1 ? 1 : goTime
+      } else if (m.status === 3) {
+        const goTime = elapsed + 46
+        m.minute = goTime > 90 ? '90+' : goTime < 46 ? 46 : goTime
+      } else if (m.status === 4) {
+        const goTime = elapsed + 91
+        m.minute = goTime > 120 ? '120+' : goTime < 91 ? 91 : goTime
+      }
+    }
+  })
+}
+
 onMounted(() => {
-  fetchMatches()
-  // 启动定时刷新
-  refreshTimer = setInterval(() => {
-    fetchMatches()
-  }, REFRESH_INTERVAL)
+  fetchMatches().then(() => {
+    // 启动后台静默刷新
+    startTitanMatchesRefresh(props.matchDate)
+  })
+  minuteTimer = setInterval(updateLiveMinutes, 60000)
 })
 
 onUnmounted(() => {
   if (refreshTimer) {
-    clearInterval(refreshTimer)
+    clearTimeout(refreshTimer)
     refreshTimer = null
   }
+  if (minuteTimer) {
+    clearInterval(minuteTimer)
+    minuteTimer = null
+  }
+  // 停止球探网列表的后台刷新
+  refresher.stop(`titan_${props.matchDate}`)
 })
 
-watch(() => props.matchDate, () => {
+watch(() => props.matchDate, (newDate, oldDate) => {
   filterLeague.value = ''
   filterStatus.value = ''
-  fetchMatches()
+  // 停止旧日期的后台刷新
+  if (oldDate) {
+    refresher.stop(`titan_${oldDate}`)
+  }
+  fetchMatches().then(() => {
+    // 启动新日期的后台刷新
+    startTitanMatchesRefresh(newDate)
+  })
 })
 
 watch(filteredMatches, (newVal) => {

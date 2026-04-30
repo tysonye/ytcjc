@@ -96,6 +96,17 @@ class TokenUsage(Base):
     user = relationship("User", back_populates="token_usages")
 
 
+class UserSectionConfig(Base):
+    __tablename__ = "user_section_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    titan_config = Column(Text, default="")
+    five_config = Column(Text, default="")
+    ai_settings = Column(Text, default="")
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class AIConfig(Base):
     __tablename__ = "ai_configs"
 

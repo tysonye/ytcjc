@@ -58,7 +58,6 @@
       </template>
     </nav>
 
-    <AIChat />
   </div>
 </template>
 
@@ -66,7 +65,6 @@
 import { useUserStore } from '../stores/user'
 import { useResponsive } from '../utils/responsive'
 import { useRouter } from 'vue-router'
-import AIChat from '../components/AIChat.vue'
 
 const userStore = useUserStore()
 const router = useRouter()

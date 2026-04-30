@@ -1,6 +1,10 @@
 <template>
   <div class="login-page">
     <div class="login-card">
+      <div class="back-home" @click="router.push('/')">
+        <el-icon><ArrowLeft /></el-icon>
+        <span>返回首页</span>
+      </div>
       <h2 class="login-title">竞彩足球数据分析平台</h2>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="0">
         <el-form-item prop="username">
@@ -25,6 +29,7 @@ import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -45,7 +50,12 @@ const handleLogin = async () => {
     await userStore.login(form.username, form.password)
     ElMessage.success('登录成功')
     const redirect = route.query.redirect || '/'
-    router.push(redirect)
+    const tab = route.query.tab
+    if (tab) {
+      router.push({ path: redirect, query: { tab } })
+    } else {
+      router.push(redirect)
+    }
   } catch (e) {
     // error handled by interceptor
   } finally {
@@ -72,6 +82,7 @@ const handleLogin = async () => {
   background: $text-white;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  position: relative;
 
   @include mobile {
     width: 100%;
@@ -81,6 +92,23 @@ const handleLogin = async () => {
     display: flex;
     flex-direction: column;
     justify-content: center;
+  }
+}
+
+.back-home {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: $text-secondary;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.2s;
+
+  &:hover {
+    color: $primary-color;
   }
 }
 

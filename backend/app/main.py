@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
-from app.routers import auth, users, tokens, orders, proxy, admin
+from app.routers import auth, users, tokens, orders, proxy, admin, user_config
 from app.routers.orders import plan_router
 
 Base.metadata.create_all(bind=engine)
@@ -24,6 +24,7 @@ app.include_router(orders.router)
 app.include_router(plan_router)
 app.include_router(proxy.router)
 app.include_router(admin.router)
+app.include_router(user_config.router)
 
 
 @app.get("/api/health")

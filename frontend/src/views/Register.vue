@@ -1,6 +1,10 @@
 <template>
   <div class="register-page">
     <div class="register-card">
+      <div class="back-home" @click="router.push('/')">
+        <el-icon><ArrowLeft /></el-icon>
+        <span>返回首页</span>
+      </div>
       <h2 class="register-title">注册账号</h2>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="0">
         <el-form-item prop="username">
@@ -31,6 +35,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -86,6 +91,7 @@ const handleRegister = async () => {
   background: $text-white;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  position: relative;
 
   @include mobile {
     width: 100%;
@@ -95,6 +101,23 @@ const handleRegister = async () => {
     display: flex;
     flex-direction: column;
     justify-content: center;
+  }
+}
+
+.back-home {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: $text-secondary;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.2s;
+
+  &:hover {
+    color: $primary-color;
   }
 }
 

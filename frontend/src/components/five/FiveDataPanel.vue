@@ -1,127 +1,181 @@
 <template>
   <div class="five-data" v-loading="loading">
-    <template v-if="parsedData">
+    <template v-if="mapError">
+      <el-empty description="未找到对应500数据" :image-size="80" />
+    </template>
+    <template v-else-if="parsedData">
       <div v-for="section in visibleSections" :key="section.key" class="section-block">
         <h3 class="section-title">{{ section.label }}</h3>
         <div class="section-content">
-          <div v-if="section.key === 'basic_info'">
-            <el-descriptions :column="2" border size="small" v-if="parsedData.basicInfo">
-              <el-descriptions-item label="主队">{{ parsedData.basicInfo.homeTeam }}</el-descriptions-item>
-              <el-descriptions-item label="客队">{{ parsedData.basicInfo.awayTeam }}</el-descriptions-item>
-              <el-descriptions-item label="联赛">{{ parsedData.basicInfo.league }}</el-descriptions-item>
-              <el-descriptions-item label="时间">{{ parsedData.basicInfo.matchTime }}</el-descriptions-item>
-              <el-descriptions-item label="天气">{{ parsedData.basicInfo.weather || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="场地">{{ parsedData.basicInfo.venue || '-' }}</el-descriptions-item>
-            </el-descriptions>
-            <p v-else class="placeholder">暂无基本信息</p>
-          </div>
-
-          <div v-else-if="section.key === 'yapan'">
-            <el-table :data="parsedData.yapanData" size="small" stripe v-if="parsedData.yapanData?.length" max-height="300">
-              <el-table-column prop="company" label="公司" width="100" fixed />
-              <el-table-column label="初盘" align="center">
-                <el-table-column prop="home_init" label="主" width="55" />
-                <el-table-column prop="handicap_init" label="盘口" width="60" />
-                <el-table-column prop="away_init" label="客" width="55" />
-              </el-table-column>
-              <el-table-column label="即时" align="center">
-                <el-table-column prop="home_curr" label="主" width="55" />
-                <el-table-column prop="handicap_curr" label="盘口" width="60" />
-                <el-table-column prop="away_curr" label="客" width="55" />
-              </el-table-column>
-            </el-table>
-            <p v-else class="placeholder">暂无亚盘数据</p>
-          </div>
-
-          <div v-else-if="section.key === 'ouzhi'">
-            <el-table :data="parsedData.ouzhiData" size="small" stripe v-if="parsedData.ouzhiData?.length" max-height="300">
-              <el-table-column prop="company" label="公司" width="100" fixed />
-              <el-table-column label="初盘" align="center">
-                <el-table-column prop="home_init" label="胜" width="55" />
-                <el-table-column prop="draw_init" label="平" width="55" />
-                <el-table-column prop="away_init" label="负" width="55" />
-              </el-table-column>
-              <el-table-column label="即时" align="center">
-                <el-table-column prop="home_curr" label="胜" width="55" />
-                <el-table-column prop="draw_curr" label="平" width="55" />
-                <el-table-column prop="away_curr" label="负" width="55" />
-              </el-table-column>
-            </el-table>
-            <p v-else class="placeholder">暂无欧指数据</p>
-          </div>
-
-          <div v-else-if="section.key === 'daxiao'">
-            <el-table :data="parsedData.daxiaoData" size="small" stripe v-if="parsedData.daxiaoData?.length" max-height="300">
-              <el-table-column prop="company" label="公司" width="100" fixed />
-              <el-table-column label="初盘" align="center">
-                <el-table-column prop="big_init" label="大" width="55" />
-                <el-table-column prop="line_init" label="盘口" width="60" />
-                <el-table-column prop="small_init" label="小" width="55" />
-              </el-table-column>
-              <el-table-column label="即时" align="center">
-                <el-table-column prop="big_curr" label="大" width="55" />
-                <el-table-column prop="line_curr" label="盘口" width="60" />
-                <el-table-column prop="small_curr" label="小" width="55" />
-              </el-table-column>
-            </el-table>
-            <p v-else class="placeholder">暂无大小球数据</p>
-          </div>
-
-          <div v-else-if="section.key === 'jiben'">
-            <div v-if="parsedData.jibenData" class="jiben-info">
-              <el-row :gutter="15">
-                <el-col :span="12" v-if="parsedData.jibenData.homeForm">
-                  <h4>主队近况</h4>
-                  <p>{{ parsedData.jibenData.homeForm }}</p>
-                  <p>盘路: {{ parsedData.jibenData.homePan }}</p>
-                </el-col>
-                <el-col :span="12" v-if="parsedData.jibenData.awayForm">
-                  <h4>客队近况</h4>
-                  <p>{{ parsedData.jibenData.awayForm }}</p>
-                  <p>盘路: {{ parsedData.jibenData.awayPan }}</p>
-                </el-col>
-              </el-row>
-            </div>
-            <p v-else class="placeholder">暂无基本面数据</p>
-          </div>
-
-          <div v-else-if="section.key === 'jiaofeng'">
-            <el-table :data="parsedData.h2hData" size="small" stripe v-if="parsedData.h2hData?.length" max-height="250">
-              <el-table-column prop="date" label="日期" width="90" />
-              <el-table-column prop="league" label="赛事" width="100" />
-              <el-table-column prop="home" label="主队" width="90" />
-              <el-table-column prop="score" label="比分" width="60" align="center" />
-              <el-table-column prop="away" label="客队" width="90" />
-            </el-table>
-            <p v-else class="placeholder">暂无交锋数据</p>
-          </div>
+          <component :is="getComponent(section.key)" v-bind="getProps(section.key)" />
         </div>
       </div>
     </template>
-    <el-empty v-if="!parsedData && !loading" description="暂无500数据" :image-size="80" />
+    <el-empty v-else-if="!loading" description="暂无500数据" :image-size="80" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, inject, markRaw, onUnmounted } from 'vue'
 import { useSectionsStore } from '../../stores/sections'
+import { findFiveMatchId, refresher, REFRESH_INTERVAL } from '../../utils/fiveMatchMapper'
+import { parseShujuPage, parseOuzhiPage, parseYazhiPage, parseDaxiaoPage } from '../../utils/fiveDataParser'
+import FiveBasicInfo from './FiveBasicInfo.vue'
+import FiveRecentForm from './FiveRecentForm.vue'
+import FiveH2HRecord from './FiveH2HRecord.vue'
+import FiveRecommendation from './FiveRecommendation.vue'
+import FiveEuropeanOdds from './FiveEuropeanOdds.vue'
+import FiveAsianOdds from './FiveAsianOdds.vue'
+import FiveOverUnderOdds from './FiveOverUnderOdds.vue'
+import FiveKellyIndex from './FiveKellyIndex.vue'
 
 const props = defineProps({ matchUniqueId: { type: [String, Number], default: '' } })
+const selectedMatchInfo = inject('selectedMatchInfo', ref(null))
 const sectionsStore = useSectionsStore()
 const loading = ref(false)
 const parsedData = ref(null)
+const mapError = ref(false)
 
 const visibleSections = computed(() => sectionsStore.getVisibleSections('five'))
+
+const FIVE_COMPONENTS = {
+  basic_info: { comp: markRaw(FiveBasicInfo), propKey: 'basicInfo' },
+  recent_form: { comp: markRaw(FiveRecentForm), propKey: 'recentForm' },
+  h2h_record: { comp: markRaw(FiveH2HRecord), propKey: 'h2hRecord' },
+  recommendation: { comp: markRaw(FiveRecommendation), propKey: 'recommendation' },
+  european_odds: { comp: markRaw(FiveEuropeanOdds), propKey: 'europeanOdds' },
+  asian_odds: { comp: markRaw(FiveAsianOdds), propKey: 'asianOdds' },
+  overunder_odds: { comp: markRaw(FiveOverUnderOdds), propKey: 'overunderOdds' },
+  kelly_index: { comp: markRaw(FiveKellyIndex), propKey: 'kellyIndex' },
+}
+
+function getComponent(key) {
+  return FIVE_COMPONENTS[key]?.comp || null
+}
+
+function getProps(key) {
+  const cfg = FIVE_COMPONENTS[key]
+  if (!cfg || !parsedData.value) return {}
+  return { data: parsedData.value[cfg.propKey] }
+}
+
+async function fetchWithGbk(url) {
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) return null
+    const buffer = await resp.arrayBuffer()
+    const uint8 = new Uint8Array(buffer)
+    const headBytes = uint8.slice(0, Math.min(4096, uint8.length))
+    let headText = ''
+    for (let i = 0; i < headBytes.length; i++) {
+      const b = headBytes[i]
+      headText += (b >= 32 && b < 127) ? String.fromCharCode(b) : ' '
+    }
+    const isGbk = /charset\s*=\s*["']?gb/i.test(headText)
+    if (isGbk) {
+      try {
+        return new TextDecoder('gbk').decode(buffer)
+      } catch (e) {}
+    }
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+    } catch {
+      try {
+        return new TextDecoder('gbk').decode(buffer)
+      } catch {
+        return new TextDecoder('utf-8').decode(buffer)
+      }
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchFiveData(fiveMatchId) {
+  const [shujuHtml, ouzhiHtml, yazhiHtml, daxiaoHtml] = await Promise.allSettled([
+    fetchWithGbk(`/500-proxy/fenxi/shuju-${fiveMatchId}.shtml`),
+    fetchWithGbk(`/500-proxy/fenxi/ouzhi-${fiveMatchId}.shtml`),
+    fetchWithGbk(`/500-proxy/fenxi/yazhi-${fiveMatchId}.shtml`),
+    fetchWithGbk(`/500-proxy/fenxi/daxiao-${fiveMatchId}.shtml`),
+  ])
+
+  const shujuResult = shujuHtml.status === 'fulfilled' ? shujuHtml.value : null
+  const ouzhiResult = ouzhiHtml.status === 'fulfilled' ? ouzhiHtml.value : null
+  const yazhiResult = yazhiHtml.status === 'fulfilled' ? yazhiHtml.value : null
+  const daxiaoResult = daxiaoHtml.status === 'fulfilled' ? daxiaoHtml.value : null
+
+  const shujuData = parseShujuPage(shujuResult)
+  const ouzhiData = parseOuzhiPage(ouzhiResult)
+  const yazhiData = parseYazhiPage(yazhiResult)
+  const daxiaoData = parseDaxiaoPage(daxiaoResult)
+
+  const hasAnyData = shujuData || (ouzhiData && (ouzhiData.europeanOdds?.length > 0 || ouzhiData.basicInfo)) || (yazhiData && yazhiData.asianOdds?.length > 0) || (daxiaoData && daxiaoData.overunderOdds?.length > 0)
+  if (!hasAnyData) {
+    return null
+  }
+
+  const fallbackBasic = ouzhiData?.basicInfo || shujuData?.basicInfo || { homeTeam: '', awayTeam: '', league: '', matchTime: '', weather: '', venue: '' }
+  const shujuBasic = shujuData?.basicInfo
+  if (shujuBasic && shujuBasic.homeTeam) {
+    fallbackBasic.homeTeam = fallbackBasic.homeTeam || shujuBasic.homeTeam
+    fallbackBasic.awayTeam = fallbackBasic.awayTeam || shujuBasic.awayTeam
+    fallbackBasic.league = fallbackBasic.league || shujuBasic.league
+    fallbackBasic.matchTime = fallbackBasic.matchTime || shujuBasic.matchTime
+  }
+
+  return {
+    basicInfo: fallbackBasic,
+    recentForm: shujuData?.recentForm || { home: { formSeq: '', panSeq: '' }, away: { formSeq: '', panSeq: '' } },
+    h2hRecord: shujuData?.h2hRecord || { summary: '', homeWins: 0, draws: 0, awayWins: 0, matches: [] },
+    recommendation: shujuData?.recommendation || { result: '', analysis: '' },
+    europeanOdds: ouzhiData?.europeanOdds || [],
+    asianOdds: yazhiData?.asianOdds || [],
+    overunderOdds: daxiaoData?.overunderOdds || [],
+    kellyIndex: ouzhiData?.kellyIndex || [],
+  }
+}
 
 async function fetchData() {
   if (!props.matchUniqueId) return
   loading.value = true
+  mapError.value = false
+  parsedData.value = null
+
   try {
-    const resp = await fetch(`/500-proxy/fenxi/shuju-${props.matchUniqueId}.shtml`)
-    const html = await resp.text()
-    if (html) {
-      parsedData.value = parseFiveData(html)
+    const matchInfo = selectedMatchInfo.value
+    console.log('[FiveDataPanel] fetchData called, matchUniqueId:', props.matchUniqueId)
+    console.log('[FiveDataPanel] matchInfo:', matchInfo ? {
+      match_id: matchInfo.match_id,
+      schedule_id: matchInfo.schedule_id,
+      home_team: matchInfo.home_team,
+      away_team: matchInfo.away_team,
+      start_time: matchInfo.start_time,
+    } : null)
+
+    let fiveMatchId = null
+
+    // 优先使用 findFiveMatchId（内部已包含match_id+球队名称验证逻辑）
+    console.log('[FiveDataPanel] calling findFiveMatchId')
+    fiveMatchId = await findFiveMatchId(matchInfo || { schedule_id: props.matchUniqueId })
+    console.log('[FiveDataPanel] findFiveMatchId result:', fiveMatchId)
+
+    if (!fiveMatchId) {
+      console.log('[FiveDataPanel] no fiveMatchId found, showing error')
+      mapError.value = true
+      return
     }
+
+    const data = await fetchFiveData(fiveMatchId)
+    if (!data) {
+      console.log('[FiveDataPanel] fetchFiveData returned null')
+      mapError.value = true
+      return
+    }
+
+    parsedData.value = data
+
+    // 启动500数据页面的后台刷新
+    startFiveDataRefresh(fiveMatchId)
   } catch (e) {
     console.error('获取500数据失败:', e)
   } finally {
@@ -129,99 +183,58 @@ async function fetchData() {
   }
 }
 
-function parseFiveData(html) {
-  if (!html) return null
-  const data = { basicInfo: null, yapanData: [], ouzhiData: [], daxiaoData: [], jibenData: null, h2hData: [] }
-
-  try {
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(html, 'text/html')
-
-    const titleEl = doc.querySelector('title')
-    if (titleEl) {
-      const titleText = titleEl.textContent
-      const vsMatch = titleText.match(/(.+?)\s*(?:vs|VS)\s*(.+)/)
-      if (vsMatch) {
-        data.basicInfo = { homeTeam: vsMatch[1].trim(), awayTeam: vsMatch[2].trim(), league: '', matchTime: '', weather: '', venue: '' }
+function startFiveDataRefresh(fiveMatchId) {
+  refresher.stop(`five_data_${props.matchUniqueId}`)
+  refresher.start(
+    `five_data_${props.matchUniqueId}`,
+    async () => {
+      return await fetchFiveData(fiveMatchId)
+    },
+    { get: () => null, set: () => {} }, // 使用空缓存，直接更新UI
+    REFRESH_INTERVAL.fiveData,
+    (freshData) => {
+      if (freshData) {
+        parsedData.value = freshData
       }
     }
-
-    doc.querySelectorAll('table').forEach(table => {
-      const text = table.textContent
-      const rows = table.querySelectorAll('tr')
-      if (rows.length < 2) return
-
-      const headerText = rows[0]?.textContent || ''
-
-      if (headerText.includes('亚盘') || headerText.includes('让球')) {
-        rows.forEach((row, i) => {
-          if (i === 0) return
-          const cs = row.querySelectorAll('td')
-          if (cs.length >= 6) {
-            data.yapanData.push({
-              company: cs[0]?.textContent?.trim() || '',
-              home_init: cs[1]?.textContent?.trim(), handicap_init: cs[2]?.textContent?.trim(), away_init: cs[3]?.textContent?.trim(),
-              home_curr: cs[4]?.textContent?.trim(), handicap_curr: cs[5]?.textContent?.trim(), away_curr: cs[6]?.textContent?.trim(),
-            })
-          }
-        })
-      }
-
-      if (headerText.includes('欧指') || headerText.includes('胜平负')) {
-        rows.forEach((row, i) => {
-          if (i === 0) return
-          const cs = row.querySelectorAll('td')
-          if (cs.length >= 6) {
-            data.ouzhiData.push({
-              company: cs[0]?.textContent?.trim() || '',
-              home_init: cs[1]?.textContent?.trim(), draw_init: cs[2]?.textContent?.trim(), away_init: cs[3]?.textContent?.trim(),
-              home_curr: cs[4]?.textContent?.trim(), draw_curr: cs[5]?.textContent?.trim(), away_curr: cs[6]?.textContent?.trim(),
-            })
-          }
-        })
-      }
-
-      if (headerText.includes('大小') || headerText.includes('进球')) {
-        rows.forEach((row, i) => {
-          if (i === 0) return
-          const cs = row.querySelectorAll('td')
-          if (cs.length >= 6) {
-            data.daxiaoData.push({
-              company: cs[0]?.textContent?.trim() || '',
-              big_init: cs[1]?.textContent?.trim(), line_init: cs[2]?.textContent?.trim(), small_init: cs[3]?.textContent?.trim(),
-              big_curr: cs[4]?.textContent?.trim(), line_curr: cs[5]?.textContent?.trim(), small_curr: cs[6]?.textContent?.trim(),
-            })
-          }
-        })
-      }
-    })
-
-    const formMatch = html.match(/近况走势\s*[-–]\s*([WDL]+)/g)
-    const panMatch = html.match(/盘路赢输\s*[-–]\s*([WDL\d/]+)/g)
-    if (formMatch?.length >= 2 || panMatch?.length >= 2) {
-      data.jibenData = {
-        homeForm: formMatch?.[0]?.replace(/近况走势\s*[-–]\s*/, '') || '',
-        awayForm: formMatch?.[1]?.replace(/近况走势\s*[-–]\s*/, '') || '',
-        homePan: panMatch?.[0]?.replace(/盘路赢输\s*[-–]\s*/, '') || '',
-        awayPan: panMatch?.[1]?.replace(/盘路赢输\s*[-–]\s*/, '') || '',
-      }
-    }
-  } catch (e) {
-    console.warn('解析500数据失败:', e)
-  }
-
-  return data
+  )
 }
 
-onMounted(fetchData)
-watch(() => props.matchUniqueId, fetchData)
+function isSameMatch(info, matchId) {
+  if (!info || !matchId) return false
+  return String(info.schedule_id) === String(matchId) || String(info.match_unique_id) === String(matchId)
+}
+
+onMounted(() => {
+  if (isSameMatch(selectedMatchInfo.value, props.matchUniqueId)) {
+    fetchData()
+  }
+})
+
+onUnmounted(() => {
+  // 组件卸载时停止后台刷新
+  refresher.stop(`five_data_${props.matchUniqueId}`)
+})
+
+watch(() => props.matchUniqueId, (newId, oldId) => {
+  if (!newId) return
+  // 切换比赛时停止旧比赛的后台刷新
+  if (oldId) {
+    refresher.stop(`five_data_${oldId}`)
+  }
+  if (isSameMatch(selectedMatchInfo.value, newId)) {
+    fetchData()
+  }
+})
+watch(selectedMatchInfo, (newInfo) => {
+  if (isSameMatch(newInfo, props.matchUniqueId)) {
+    fetchData()
+  }
+})
 </script>
 
 <style scoped>
 .section-block { margin-bottom:15px; border:1px solid #eee; border-radius:6px; overflow:hidden; }
 .section-title { background:#f5f7fa; padding:8px 12px; font-size:13px; margin:0; }
 .section-content { padding:12px; }
-.placeholder { color:#999; text-align:center; padding:15px; font-size:13px; }
-.jiben-info h4 { font-size:13px; margin:4px 0; }
-.jiben-info p { font-size:12px; color:#666; margin:2px 0; }
 </style>

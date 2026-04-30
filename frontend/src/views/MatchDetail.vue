@@ -16,6 +16,12 @@
     <div v-show="activeTab === 'five'">
       <FiveDataPanel :match-unique-id="matchUniqueId" />
     </div>
+    <div v-show="activeTab === 'jcbet'" class="jcbet-container">
+      <JcBetPanel />
+    </div>
+    <div v-show="activeTab === 'macau'" class="macau-container">
+      <MacauOddsPanel />
+    </div>
     <div v-if="showCompanyDialog" class="dialog-overlay" @click.self="showCompanyDialog = false">
       <div class="dialog-box">
         <div class="dialog-header">
@@ -43,9 +49,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, inject, markRaw } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, inject, markRaw } from 'vue'
 import { useSectionsStore } from '../stores/sections'
 import { ElMessage } from 'element-plus'
+import { SmartCache, BackgroundRefresher, REFRESH_INTERVAL, CACHE_STRATEGY } from '../utils/fiveMatchMapper'
 import TitanMatchInfo from '../components/titan/TitanMatchInfo.vue'
 import TitanStandings from '../components/titan/TitanStandings.vue'
 import TitanOddsTrend from '../components/titan/TitanOddsTrend.vue'
@@ -65,6 +72,8 @@ import TitanSeasonStats from '../components/titan/TitanSeasonStats.vue'
 import TitanBriefing from '../components/titan/TitanBriefing.vue'
 import TitanUpcoming from '../components/titan/TitanUpcoming.vue'
 import FiveDataPanel from '../components/five/FiveDataPanel.vue'
+import JcBetPanel from '../components/jc/JcBetPanel.vue'
+import MacauOddsPanel from '../components/jc/MacauOddsPanel.vue'
 
 const selectedMatchInfo = inject('selectedMatchInfo', ref(null))
 const sharedAnalysisData = inject('analysisData', ref(null))
@@ -78,6 +87,9 @@ const activeTab = inject('activeTab', ref('titan'))
 const showCompanyDialog = ref(false)
 const tempSelectedCompanies = ref([])
 const confirmedCompanies = ref([])
+
+const titanDetailCache = new SmartCache('titan_detail', CACHE_STRATEGY.titanMatches)
+const titanRefresher = new BackgroundRefresher()
 
 const allCompanyNames = computed(() => oddsTrendData.value.map(r => r.company))
 
@@ -186,16 +198,18 @@ function decodeBuffer(buffer) {
       encoding = 'gbk'
     }
   }
-  return new TextDecoder(encoding).decode(buffer)
+  const text = new TextDecoder(encoding).decode(buffer)
+  if (encoding === 'gbk' && text.includes('ï»¿')) {
+    return new TextDecoder('utf-8').decode(buffer)
+  }
+  return text
 }
-
-// Cloudflare Workers 代理配置 - 使用 Vercel 自定义域名
-const WORKERS_URL = 'https://jc.xibai.xin'
 
 function getProxyUrl(url) {
   if (url.includes('jc.titan007.com')) return url.replace('https://jc.titan007.com', '/titan-proxy/jc')
   if (url.includes('zq.titan007.com')) return url.replace('https://zq.titan007.com', '/titan-proxy/zq')
   if (url.includes('vip.titan007.com')) return url.replace('https://vip.titan007.com', '/titan-proxy/vip')
+  if (url.includes('info.titan007.com')) return url.replace('https://info.titan007.com', '/titan-proxy/info')
   if (url.includes('odds.500.com')) return url.replace('https://odds.500.com', '/500-proxy')
   if (url.includes('macauslot.com')) return url.replace('https://www.macauslot.com', '/macau-proxy')
   return null
@@ -203,32 +217,17 @@ function getProxyUrl(url) {
 
 async function proxyFetch(url) {
   const proxyUrl = getProxyUrl(url)
-  
-  if (!proxyUrl || !WORKERS_URL) {
-    throw new Error('No proxy available for this URL')
+  if (!proxyUrl) return { body: '' }
+  try {
+    const resp = await fetch(proxyUrl)
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const buffer = await resp.arrayBuffer()
+    const text = decodeBuffer(buffer)
+    if (text && text.length > 0) return { body: text }
+  } catch (e) {
+    console.warn('proxyFetch failed:', url, e.message)
   }
-  
-  const workerUrl = WORKERS_URL + proxyUrl
-  
-  const resp = await fetch(workerUrl, {
-    mode: 'cors',
-    headers: {
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
-    }
-  })
-  
-  if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status}`)
-  }
-  
-  const buffer = await resp.arrayBuffer()
-  const text = decodeBuffer(buffer)
-  
-  if (!text || text.length === 0) {
-    throw new Error('Empty response from proxy')
-  }
-  
-  return { body: text }
+  return { body: '' }
 }
 
 async function fetchMatchDetail() {
@@ -237,7 +236,18 @@ async function fetchMatchDetail() {
   const uid = info?.match_unique_id
   if (!uid) return
 
-  loading.value = true
+  // 先查缓存
+  const cached = titanDetailCache.get(uid)
+  if (cached) {
+    analysisData.value = cached.analysisData
+    sharedAnalysisData.value = cached.analysisData
+    oddsTrendData.value = cached.oddsTrendData || []
+    jcOddsData.value = cached.jcOddsData || {}
+    loading.value = false
+  } else {
+    loading.value = true
+  }
+
   try {
     const [analysisResult, oddsResult, jcResult] = await Promise.allSettled([
       proxyFetch(`https://zq.titan007.com/analysis/${uid}cn.htm`),
@@ -245,26 +255,513 @@ async function fetchMatchDetail() {
       proxyFetch(`https://zq.titan007.com/default/getAnalyData?sid=${uid}&t=1&r=${Date.now()}`),
     ])
 
+    let newAnalysisData = null
+    let newOddsTrendData = null
+    let newJcOddsData = null
+
     if (analysisResult.status === 'fulfilled' && analysisResult.value?.body) {
-      analysisData.value = parseAnalysisPage(analysisResult.value.body)
-      sharedAnalysisData.value = analysisData.value
+      newAnalysisData = parseAnalysisPage(analysisResult.value.body)
+      // 保留缓存中的jc_odds，直到新的jcOddsData解析完成
+      if (cached?.analysisData?.jc_odds && !newAnalysisData.jc_odds) {
+        newAnalysisData.jc_odds = cached.analysisData.jc_odds
+      }
+      analysisData.value = newAnalysisData
+      sharedAnalysisData.value = newAnalysisData
+      // 如果HTML中没有解析到积分数据，再尝试从JS获取
+      if (!newAnalysisData.standings_data) {
+        await fetchStandingsData(analysisResult.value.body)
+      }
     }
     if (oddsResult.status === 'fulfilled' && oddsResult.value?.body) {
-      oddsTrendData.value = parseOddsTrend(oddsResult.value.body)
+      newOddsTrendData = parseOddsTrend(oddsResult.value.body)
+      oddsTrendData.value = newOddsTrendData
     }
     if (jcResult.status === 'fulfilled' && jcResult.value?.body) {
       try {
         const jcObj = JSON.parse(jcResult.value.body)
-        jcOddsData.value = parseJcOdds(jcObj)
-        if (analysisData.value) analysisData.value.jc_odds = jcOddsData.value
+        newJcOddsData = parseJcOdds(jcObj)
+        jcOddsData.value = newJcOddsData
+        if (analysisData.value) analysisData.value.jc_odds = newJcOddsData
       } catch (e) { console.warn('解析竞彩指数失败:', e) }
     }
+
+    // 存入缓存
+    if (newAnalysisData || newOddsTrendData || newJcOddsData) {
+      titanDetailCache.set(uid, {
+        analysisData: analysisData.value,
+        oddsTrendData: oddsTrendData.value,
+        jcOddsData: jcOddsData.value,
+      })
+    }
+
+    // 启动后台静默刷新
+    startTitanDetailRefresh(uid)
   } catch (e) {
     console.error('获取比赛详情失败:', e)
-    ElMessage.error('获取比赛详情失败')
+    if (!cached) ElMessage.error('获取比赛详情失败')
   } finally {
     loading.value = false
   }
+}
+
+function startTitanDetailRefresh(uid) {
+  titanRefresher.stop(`titan_detail_${uid}`)
+  titanRefresher.start(
+    `titan_detail_${uid}`,
+    async () => {
+      const [analysisResult, oddsResult, jcResult] = await Promise.allSettled([
+        proxyFetch(`https://zq.titan007.com/analysis/${uid}cn.htm`),
+        proxyFetch(`https://zq.titan007.com/analysis/odds/${uid}.htm`),
+        proxyFetch(`https://zq.titan007.com/default/getAnalyData?sid=${uid}&t=1&r=${Date.now()}`),
+      ])
+      const result = { analysisData: null, oddsTrendData: null, jcOddsData: null }
+      if (analysisResult.status === 'fulfilled' && analysisResult.value?.body) {
+        result.analysisData = parseAnalysisPage(analysisResult.value.body)
+      }
+      if (oddsResult.status === 'fulfilled' && oddsResult.value?.body) {
+        result.oddsTrendData = parseOddsTrend(oddsResult.value.body)
+      }
+      if (jcResult.status === 'fulfilled' && jcResult.value?.body) {
+        try {
+          const jcObj = JSON.parse(jcResult.value.body)
+          result.jcOddsData = parseJcOdds(jcObj)
+        } catch (e) {}
+      }
+      return result
+    },
+    titanDetailCache,
+    REFRESH_INTERVAL.titanMatches.normal,
+    (freshData) => {
+      if (freshData) {
+        if (freshData.analysisData) {
+          // 保留现有的jc_odds，直到新的jcOddsData可用
+          if (!freshData.analysisData.jc_odds && freshData.jcOddsData) {
+            freshData.analysisData.jc_odds = freshData.jcOddsData
+          } else if (!freshData.analysisData.jc_odds && analysisData.value?.jc_odds) {
+            freshData.analysisData.jc_odds = analysisData.value.jc_odds
+          }
+          analysisData.value = freshData.analysisData
+          sharedAnalysisData.value = freshData.analysisData
+        }
+        if (freshData.oddsTrendData) oddsTrendData.value = freshData.oddsTrendData
+        if (freshData.jcOddsData) {
+          jcOddsData.value = freshData.jcOddsData
+          if (analysisData.value) analysisData.value.jc_odds = freshData.jcOddsData
+        }
+      }
+    }
+  )
+}
+
+async function fetchStandingsData(analysisHtml) {
+  let h2hHome = 0, h2hAway = 0
+  let m
+  m = analysisHtml.match(/var\s+h2h_home\s*=\s*(\d+)/)
+  if (m) h2hHome = parseInt(m[1])
+  m = analysisHtml.match(/var\s+h2h_away\s*=\s*(\d+)/)
+  if (m) h2hAway = parseInt(m[1])
+
+  const isShowMatch = analysisHtml.match(/var\s+isShowIntegral\s*=\s*(\d+)/)
+  if (isShowMatch && parseInt(isShowMatch[1]) === 0 && h2hHome === 0 && h2hAway === 0) return
+
+  let season = '', sclassId = ''
+  const scoreUrlMatch = analysisHtml.match(/info\.titan007\.com\/score\/([\d-]+)\/(\d+)/)
+  if (scoreUrlMatch) {
+    season = scoreUrlMatch[1]
+    sclassId = scoreUrlMatch[2]
+  } else {
+    const sclassIdMatches = [...new Set([...analysisHtml.matchAll(/sclassid=(\d+)/g)].map(x => x[1]))]
+    const seasonMatches = [...new Set([...analysisHtml.matchAll(/matchseason=([\d-]+)/g)].map(x => x[1]))]
+    if (sclassIdMatches.length > 0 && seasonMatches.length > 0) {
+      sclassId = sclassIdMatches[0]
+      season = seasonMatches[0]
+    } else return
+  }
+
+  const applyStandings = (standings) => {
+    if (standings && analysisData.value) {
+      const updated = { ...analysisData.value, standings_data: standings }
+      analysisData.value = updated
+      sharedAnalysisData.value = updated
+    }
+  }
+
+  const scorePageResult = await proxyFetch(`https://info.titan007.com/cn/SubLeague/${sclassId}.html`)
+  if (scorePageResult?.body && scorePageResult.body.length > 500) {
+    const dataJsMatch = scorePageResult.body.match(/\/jsData\/matchResult\/([^'"]+\.js[^'"]*)/)
+    if (dataJsMatch) {
+      const dataJsResult = await proxyFetch(`https://info.titan007.com/jsData/matchResult/${dataJsMatch[1]}`)
+      if (dataJsResult?.body && dataJsResult.body.includes('totalScore')) {
+        applyStandings(parseStandingsJs(dataJsResult.body, h2hHome, h2hAway))
+        return
+      }
+    }
+
+    const seasonInPage = scorePageResult.body.match(/\/jsData\/matchResult\/([^/]+)\/s/)
+    if (seasonInPage) season = seasonInPage[1]
+  }
+
+  const jsPatterns = []
+  if (season.includes('-')) {
+    jsPatterns.push(`${season}/s${sclassId}.js`)
+  } else {
+    jsPatterns.push(`${season}/s${sclassId}.js`)
+    jsPatterns.push(`${season}-${parseInt(season) + 1}/s${sclassId}.js`)
+  }
+
+  for (const pattern of jsPatterns) {
+    const dataJsResult = await proxyFetch(`https://info.titan007.com/jsData/matchResult/${pattern}`)
+    if (dataJsResult?.body && dataJsResult.body.includes('totalScore')) {
+      applyStandings(parseStandingsJs(dataJsResult.body, h2hHome, h2hAway))
+      return
+    }
+  }
+
+  const seaResult = await proxyFetch(`https://info.titan007.com/jsData/LeagueSeason/sea${sclassId}.js`)
+  if (seaResult?.body) {
+    const seasonList = [...seaResult.body.matchAll(/'([\d-]+)'/g)].map(x => x[1])
+    for (const s of seasonList) {
+      for (const subId of [0, 1, 2, 3]) {
+        const suffix = subId === 0 ? '' : `_${subId}`
+        const dataJsResult = await proxyFetch(`https://info.titan007.com/jsData/matchResult/${s}/s${sclassId}${suffix}.js`)
+        if (dataJsResult?.body && dataJsResult.body.includes('totalScore')) {
+          applyStandings(parseStandingsJs(dataJsResult.body, h2hHome, h2hAway))
+          return
+        }
+      }
+    }
+  }
+}
+
+function parseStandingsFromHtml(doc, html) {
+  const porlet5 = doc.getElementById('porlet_5')
+  if (!porlet5) return null
+
+  // 获取所有直接包含积分表格的table
+  const tables = porlet5.querySelectorAll('table')
+  if (tables.length < 2) return null
+
+  const result = {
+    total: [], home: [], away: [],
+    half: {}, half_home: {}, half_away: {},
+    home_team: null, away_team: null,
+    league_short: ''
+  }
+
+  // 从HTML中提取h2h_home和h2h_away
+  let h2hHome = 0, h2hAway = 0
+  let m = html.match(/var\s+h2h_home\s*=\s*(\d+)/)
+  if (m) h2hHome = parseInt(m[1])
+  m = html.match(/var\s+h2h_away\s*=\s*(\d+)/)
+  if (m) h2hAway = parseInt(m[1])
+
+  // 查找包含积分数据的表格
+  // 原网页结构：外层table > tbody > tr > td(50%) + td(50%)
+  // 每个td内包含两个table：全场和半场
+  const outerTable = Array.from(tables).find(t => {
+    const tds = t.querySelectorAll('td[width="50%"]')
+    return tds.length >= 2
+  })
+
+  if (!outerTable) return null
+
+  const halfWidthTds = outerTable.querySelectorAll('td[width="50%"]')
+  if (halfWidthTds.length < 2) return null
+
+  function extractTeamData(tdCell, isHome) {
+    const innerTables = tdCell.querySelectorAll('table')
+    const teamData = { team_id: 0, team_cn: '', team: '' }
+
+    for (const tbl of innerTables) {
+      const rows = tbl.querySelectorAll('tr')
+      if (rows.length < 5) continue
+
+      // 检查是否是积分表格（有标题行+表头行+数据行）
+      const firstRow = rows[0]
+      const titleLink = firstRow.querySelector('a[href*="/team/"]')
+      if (!titleLink) continue
+
+      // 提取球队信息
+      const titleText = titleLink.textContent?.trim() || ''
+      const href = titleLink.getAttribute('href') || ''
+      const teamIdMatch = href.match(/\/team\/(\d+)/)
+      if (teamIdMatch) teamData.team_id = parseInt(teamIdMatch[1])
+
+      // 提取联赛简称和排名 [乌克超-11]查诺莫斯
+      const leagueMatch = titleText.match(/\[([^\]]+)\]/)
+      if (leagueMatch) result.league_short = leagueMatch[1].split('-')[0]
+      teamData.team_cn = titleText.replace(/\[[^\]]+\]/, '').trim()
+
+      // 判断是全场表格还是半场表格
+      const headerRow = rows[1]
+      const headerCells = headerRow.querySelectorAll('td')
+      const headerText = headerCells[0]?.textContent?.trim() || ''
+      const isFullTime = headerText === '全场' || headerText.includes('全场')
+      const isHalfTime = headerText === '半场' || headerText.includes('半场')
+
+      if (!isFullTime && !isHalfTime) continue
+
+      // 提取数据行：总、主、客、近6
+      const dataRows = []
+      for (let i = 2; i < rows.length; i++) {
+        const cells = rows[i].querySelectorAll('td')
+        if (cells.length >= 9) {
+          const typeText = cells[0]?.textContent?.trim() || ''
+          let type = ''
+          if (typeText === '总') type = 'total'
+          else if (typeText === '主' || typeText.includes('主')) type = 'home'
+          else if (typeText === '客' || typeText.includes('客')) type = 'away'
+          else if (typeText === '近6') type = 'near6'
+
+          if (type) {
+            const entry = {
+              type: typeText,
+              played: cells[1]?.textContent?.trim() || '',
+              won: cells[2]?.textContent?.trim() || '',
+              drawn: cells[3]?.textContent?.trim() || '',
+              lost: cells[4]?.textContent?.trim() || '',
+              gf: cells[5]?.textContent?.trim() || '',
+              ga: cells[6]?.textContent?.trim() || '',
+              gd: cells[7]?.textContent?.trim() || '',
+              points: cells[8]?.textContent?.trim() || '',
+              rank: cells[9]?.textContent?.trim() || '',
+              win_rate: cells[10]?.textContent?.trim() || '',
+            }
+            dataRows.push({ type, entry })
+          }
+        }
+      }
+
+      // 将数据存入结果
+      const targetId = isHome ? h2hHome : h2hAway
+      if (isFullTime) {
+        for (const { type, entry } of dataRows) {
+          if (type === 'total') {
+            result.total.push({ ...entry, team_id: targetId, team_cn: teamData.team_cn })
+            if (isHome) result.home_team = { ...entry, name: teamData.team_cn, team_id: targetId, team_cn: teamData.team_cn }
+            else result.away_team = { ...entry, name: teamData.team_cn, team_id: targetId, team_cn: teamData.team_cn }
+          } else if (type === 'home') {
+            result.home.push({ ...entry, team_id: targetId, team_cn: teamData.team_cn })
+          } else if (type === 'away') {
+            result.away.push({ ...entry, team_id: targetId, team_cn: teamData.team_cn })
+          } else if (type === 'near6') {
+            // 近6数据附加到team对象
+            const teamKey = isHome ? 'home_team' : 'away_team'
+            if (result[teamKey]) {
+              result[teamKey].near_six_stats = entry
+            }
+          }
+        }
+      } else if (isHalfTime) {
+        for (const { type, entry } of dataRows) {
+          let container = null
+          if (type === 'total') {
+            container = result.half
+          } else if (type === 'home') {
+            container = isHome ? result.half_home : result.half_home
+          } else if (type === 'away') {
+            container = isHome ? result.half_away : result.half_away
+          } else if (type === 'near6') {
+            // 半场近6数据附加到team对象
+            const teamKey = isHome ? 'home_team' : 'away_team'
+            if (result[teamKey]) {
+              result[teamKey].half_near_six_stats = entry
+            }
+            continue
+          }
+          if (container) {
+            container[targetId] = { ...entry, team_id: targetId, team_cn: teamData.team_cn }
+          }
+        }
+      }
+    }
+
+    return teamData
+  }
+
+  // 提取主队数据（第一个td）
+  extractTeamData(halfWidthTds[0], true)
+  // 提取客队数据（第二个td）
+  extractTeamData(halfWidthTds[1], false)
+
+  if (!result.home_team && !result.away_team) return null
+  return result
+}
+
+function parseStandingsJs(js, h2hHome, h2hAway) {
+  const sg = (arr, i) => (i < arr.length && arr[i] !== undefined && arr[i] !== null) ? String(arr[i]) : ''
+  const result = { total: [], home: [], away: [], home_team: null, away_team: null, league_short: '' }
+
+  let m
+  let arrTeam = []
+  m = js.match(/var\s+arrTeam\s*=\s*(\[\[.+?\]);/s)
+  if (m) {
+    try {
+      arrTeam = JSON.parse(m[1].replace(/'/g, '"'))
+    } catch { arrTeam = [] }
+  }
+
+  let leagueShort = ''
+  m = js.match(/var\s+arrLeague\s*=\s*\[\d+\s*,\s*'([^']*)'/)
+  if (m) leagueShort = m[1]
+  result.league_short = leagueShort
+
+  function getTeamName(teamId) {
+    const team = arrTeam.find(t => parseInt(t[0]) === teamId)
+    return team ? (team[3] || team[1] || '') : ''
+  }
+
+  function getTeamCnName(teamId) {
+    const team = arrTeam.find(t => parseInt(t[0]) === teamId)
+    return team ? (team[1] || team[3] || '') : ''
+  }
+
+  function formatTeamLabel(entry) {
+    const cn = entry.team_cn || entry.team
+    if (leagueShort && entry.rank) {
+      return `[${leagueShort}-${entry.rank}]${cn}`
+    }
+    return cn
+  }
+
+  m = js.match(/var\s+totalScore\s*=\s*(\[\[.+?\]);/s)
+  if (m) {
+    try {
+      const data = JSON.parse(m[1].replace(/'/g, '"'))
+      for (const item of data) {
+        const teamId = parseInt(item[2])
+        const teamEn = getTeamName(teamId)
+        const teamCn = getTeamCnName(teamId)
+        const nearSix = []
+        for (let ni = 19; ni <= 24; ni++) {
+          const v = item[ni]
+          if (v !== undefined && v !== null && v !== '') nearSix.push(parseInt(v))
+        }
+        let nearSixStats = null
+        if (nearSix.length > 0) {
+          const nsWon = nearSix.filter(v => v === 0).length
+          const nsDrawn = nearSix.filter(v => v === 1).length
+          const nsLost = nearSix.filter(v => v === 2).length
+          const nsPlayed = nearSix.length
+          const nsPoints = 3 * nsWon + nsDrawn
+          const nsWinRate = nsPlayed > 0 ? ((nsWon / nsPlayed) * 100).toFixed(1) : ''
+          nearSixStats = {
+            played: String(nsPlayed), won: String(nsWon), drawn: String(nsDrawn),
+            lost: String(nsLost), gf: '', ga: '', gd: '',
+            points: String(nsPoints), rank: '', win_rate: nsWinRate,
+          }
+        }
+        const entry = {
+          rank: sg(item, 1), team_id: teamId, team: teamEn, team_cn: teamCn,
+          red_card: sg(item, 3), played: sg(item, 4), won: sg(item, 5),
+          drawn: sg(item, 6), lost: sg(item, 7), gf: sg(item, 8), ga: sg(item, 9),
+          gd: sg(item, 10), win_rate: sg(item, 11), draw_rate: sg(item, 12),
+          lose_rate: sg(item, 13), avg_gf: sg(item, 14), avg_ga: sg(item, 15),
+          points: String(parseInt(item[16] || 0) - parseInt(item[17] || 0)),
+          notes: sg(item, 18), near_six: nearSix, near_six_stats: nearSixStats,
+        }
+        entry.label = formatTeamLabel(entry)
+        result.total.push(entry)
+        if (teamId === h2hHome) result.home_team = { name: teamCn, ...entry }
+        if (teamId === h2hAway) result.away_team = { name: teamCn, ...entry }
+      }
+    } catch (e) { console.warn('totalScore parse:', e) }
+  }
+
+  m = js.match(/var\s+homeScore\s*=\s*(\[\[.+?\]\]);/s)
+  if (m) {
+    try {
+      const data = JSON.parse(m[1].replace(/'/g, '"'))
+      for (const item of data) {
+        const teamId = parseInt(item[1])
+        const teamCn = getTeamCnName(teamId)
+        result.home.push({
+          rank: sg(item, 0), team_id: teamId, team: getTeamName(teamId), team_cn: teamCn,
+          played: sg(item, 2), won: sg(item, 3), drawn: sg(item, 4), lost: sg(item, 5),
+          gf: sg(item, 6), ga: sg(item, 7), gd: sg(item, 8),
+          win_rate: sg(item, 9), draw_rate: sg(item, 10), lose_rate: sg(item, 11),
+          avg_gf: sg(item, 12), avg_ga: sg(item, 13), points: sg(item, 14),
+        })
+      }
+    } catch (e) { console.warn('homeScore parse:', e) }
+  }
+
+  m = js.match(/var\s+guestScore\s*=\s*(\[\[.+?\]\]);/s)
+  if (m) {
+    try {
+      const data = JSON.parse(m[1].replace(/'/g, '"'))
+      for (const item of data) {
+        const teamId = parseInt(item[1])
+        const teamCn = getTeamCnName(teamId)
+        result.away.push({
+          rank: sg(item, 0), team_id: teamId, team: getTeamName(teamId), team_cn: teamCn,
+          played: sg(item, 2), won: sg(item, 3), drawn: sg(item, 4), lost: sg(item, 5),
+          gf: sg(item, 6), ga: sg(item, 7), gd: sg(item, 8),
+          win_rate: sg(item, 9), draw_rate: sg(item, 10), lose_rate: sg(item, 11),
+          avg_gf: sg(item, 12), avg_ga: sg(item, 13), points: sg(item, 14),
+        })
+      }
+    } catch (e) { console.warn('guestScore parse:', e) }
+  }
+
+  m = js.match(/var\s+halfScore\s*=\s*(\[\[.+?\]\]);/s)
+  if (m) {
+    try {
+      const data = JSON.parse(m[1].replace(/'/g, '"'))
+      for (const item of data) {
+        const teamId = parseInt(item[1])
+        const teamCn = getTeamCnName(teamId)
+        const entry = {
+          rank: sg(item, 0), team_id: teamId, team: getTeamName(teamId), team_cn: teamCn,
+          played: sg(item, 2), won: sg(item, 3), drawn: sg(item, 4), lost: sg(item, 5),
+          gf: sg(item, 6), ga: sg(item, 7), gd: sg(item, 8),
+          win_rate: sg(item, 9), draw_rate: sg(item, 10), lose_rate: sg(item, 11),
+          avg_gf: sg(item, 12), avg_ga: sg(item, 13), points: sg(item, 14),
+        }
+        if (!result.half) result.half = {}
+        result.half[teamId] = entry
+      }
+    } catch (e) { console.warn('halfScore parse:', e) }
+  }
+
+  m = js.match(/var\s+halfHomeScore\s*=\s*(\[\[.+?\]\]);/s)
+  if (m) {
+    try {
+      const data = JSON.parse(m[1].replace(/'/g, '"'))
+      for (const item of data) {
+        const teamId = parseInt(item[1])
+        const entry = {
+          rank: sg(item, 0), team_id: teamId, team_cn: getTeamCnName(teamId),
+          played: sg(item, 2), won: sg(item, 3), drawn: sg(item, 4), lost: sg(item, 5),
+          gf: sg(item, 6), ga: sg(item, 7), gd: sg(item, 8),
+          win_rate: sg(item, 9), points: sg(item, 14),
+        }
+        if (!result.half_home) result.half_home = {}
+        result.half_home[teamId] = entry
+      }
+    } catch (e) { console.warn('halfHomeScore parse:', e) }
+  }
+
+  m = js.match(/var\s+halfGuestScore\s*=\s*(\[\[.+?\]\]);/s)
+  if (m) {
+    try {
+      const data = JSON.parse(m[1].replace(/'/g, '"'))
+      for (const item of data) {
+        const teamId = parseInt(item[1])
+        const entry = {
+          rank: sg(item, 0), team_id: teamId, team_cn: getTeamCnName(teamId),
+          played: sg(item, 2), won: sg(item, 3), drawn: sg(item, 4), lost: sg(item, 5),
+          gf: sg(item, 6), ga: sg(item, 7), gd: sg(item, 8),
+          win_rate: sg(item, 9), points: sg(item, 14),
+        }
+        if (!result.half_away) result.half_away = {}
+        result.half_away[teamId] = entry
+      }
+    } catch (e) { console.warn('halfGuestScore parse:', e) }
+  }
+
+  if (!result.total.length && !result.home.length && !result.away.length) return null
+  return result
 }
 
 function parseOddsTrend(html) {
@@ -481,22 +978,15 @@ function parseAnalysisPage(html) {
   } catch (e) { console.warn('Vs_eOdds:', e) }
 
   try {
-    const standings = { total: [], home: [], away: [] }
-    m = html.match(/var\s+totalScoreStr\s*=\s*(\[\[.*?\]\]);/s)
-    if (m) JSON.parse(m[1].replace(/'/g, '"')).forEach(item => { if (item.length >= 5) standings.total.push({ rank: String(item[1]), team: String(item[3]), points: String(item[4]) }) })
-    m = html.match(/var\s+homeScoreStr\s*=\s*(\[\[.*?\]\]);/s)
-    if (m) JSON.parse(m[1].replace(/'/g, '"')).forEach(item => { if (item.length >= 4) standings.home.push({ rank: String(item[0]), team: String(item[2]), points: String(item[3]) }) })
-    m = html.match(/var\s+guestScoreStr\s*=\s*(\[\[.*?\]\]);/s)
-    if (m) JSON.parse(m[1].replace(/'/g, '"')).forEach(item => { if (item.length >= 4) standings.away.push({ rank: String(item[0]), team: String(item[2]), points: String(item[3]) }) })
-    if (standings.total.length || standings.home.length || standings.away.length) {
-      data.standings_data = { ...standings, home_team: { name: '' }, away_team: { name: '' } }
-    }
-  } catch (e) { console.warn('积分榜:', e) }
-
-  try {
     const parser = new DOMParser()
     const doc = parser.parseFromString(html, 'text/html')
     const allTables = doc.querySelectorAll('table')
+
+    // 解析积分排名表格（直接从HTML中提取，包含完整的近6和半场数据）
+    try {
+      const standingsResult = parseStandingsFromHtml(doc, html)
+      if (standingsResult) data.standings_data = standingsResult
+    } catch (e) { console.warn('解析积分排名表格失败:', e) }
 
     allTables.forEach(table => {
       const text = table.textContent
@@ -838,8 +1328,17 @@ onMounted(() => {
   }
 })
 
-watch(selectedMatchInfo, (val) => {
+onUnmounted(() => {
+  const uid = matchInfo.value?.match_unique_id
+  if (uid) titanRefresher.stop(`titan_detail_${uid}`)
+})
+
+watch(selectedMatchInfo, (val, oldVal) => {
   if (val) {
+    // 停止旧比赛的后台刷新
+    const oldUid = oldVal?.match_unique_id
+    if (oldUid) titanRefresher.stop(`titan_detail_${oldUid}`)
+
     matchInfo.value = val
     analysisData.value = null
     sharedAnalysisData.value = null
@@ -854,7 +1353,9 @@ watch(selectedMatchInfo, (val) => {
 @use '../styles/variables' as *;
 @use '../styles/mixins' as *;
 
-.match-detail { max-width: 1200px; margin: 0 auto; }
+.match-detail { max-width: 1200px; margin: 0 auto; height: 100%; }
+.jcbet-container { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.macau-container { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .section-block { margin-bottom:20px; border:1px solid #eee; border-radius:6px; overflow:hidden; }
 .section-title { background:$header-bg; padding:10px 15px; font-size:14px; color:$text-primary; display:flex; align-items:center; justify-content:space-between; }
 .title-actions { display:flex; align-items:center; gap:8px; }

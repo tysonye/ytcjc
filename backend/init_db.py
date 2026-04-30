@@ -1,5 +1,5 @@
 from app.database import engine, SessionLocal, Base
-from app.models import User, Admin, Role, Plan, AIConfig
+from app.models import User, Admin, Role, Plan, AIConfig, UserSectionConfig
 from app.services.auth_service import hash_password
 
 Base.metadata.create_all(bind=engine)

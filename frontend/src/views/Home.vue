@@ -41,32 +41,39 @@
       </div>
       <div class="detail-toolbar">
         <div class="toolbar-tabs">
-          <span class="toolbar-tab" :class="{ active: activeTab === 'titan' }" @click="activeTab = 'titan'">球探数据</span>
-          <span class="toolbar-tab" :class="{ active: activeTab === 'five' }" @click="activeTab = 'five'">500数据</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'titan' }" @click="switchTab('titan')">球探数据</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'five' }" @click="switchTab('five')">500数据</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'macau' }" @click="switchTab('macau')">澳博数据</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'jcbet' }" @click="switchTab('jcbet')">竞彩模拟投注</span>
+          <span v-if="userStore.isLoggedIn" class="toolbar-tab" :class="{ active: activeTab === 'aipredict' }" @click="switchTab('aipredict')">AI预测</span>
+          <span v-else class="toolbar-tab locked-tab" @click="goLogin">AI预测 🔒</span>
         </div>
-        <el-button size="small" @click="sectionConfigRef?.open()">
+        <el-button size="small" @click="sectionConfigRef?.open(activeTab)">
           <el-icon><Setting /></el-icon> 板块配置
         </el-button>
       </div>
-      <div class="tab-content">
-        <MatchDetail :key="selectedMatchId" />
+      <div class="tab-content" :class="{ 'no-scroll': activeTab === 'jcbet' || activeTab === 'macau' }">
+        <MatchDetail v-if="activeTab !== 'aipredict'" :key="selectedMatchId" />
+        <AIChat v-else :match-id="selectedMatchId" :inline="true" :match-context="matchContext" />
       </div>
     </div>
     <div class="right-panel empty" v-else>
       <el-empty description="请从左侧选择一场比赛查看详情" :image-size="120" />
     </div>
     <SectionConfig ref="sectionConfigRef" />
-    <AIChat :match-id="selectedMatchId" />
   </div>
 </template>
 
 <script setup>
-import { ref, provide, computed } from 'vue'
+import { ref, provide, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { Setting } from '@element-plus/icons-vue'
 import MatchList from '../components/MatchList.vue'
 import MatchDetail from '../views/MatchDetail.vue'
 import SectionConfig from '../components/SectionConfig.vue'
 import AIChat from '../components/AIChat.vue'
+import { useUserStore } from '../stores/user'
+import { preloadFiveMapping, refresher } from '../utils/fiveMatchMapper'
 
 const selectedMatchId = ref(null)
 const selectedMatchInfo = ref(null)
@@ -75,6 +82,33 @@ const sectionConfigRef = ref(null)
 const filteredCount = ref(0)
 const activeTab = ref('titan')
 const analysisData = ref(null)
+const userStore = useUserStore()
+const router = useRouter()
+const route = useRoute()
+
+onMounted(() => {
+  const tab = route.query.tab
+  if (tab === 'aipredict' && userStore.isLoggedIn) {
+    activeTab.value = 'aipredict'
+  }
+  // 后台静默预加载当天500.com映射
+  preloadFiveMapping()
+})
+
+onUnmounted(() => {
+  // 页面卸载时停止所有后台刷新
+  refresher.stopAll()
+})
+
+function goLogin() {
+  router.push({ path: '/login', query: { redirect: '/', tab: 'aipredict' } })
+}
+
+watch(() => userStore.isLoggedIn, (loggedIn) => {
+  if (!loggedIn && activeTab.value === 'aipredict') {
+    activeTab.value = 'titan'
+  }
+})
 
 function formatDate(date) {
   const y = date.getFullYear()
@@ -100,11 +134,33 @@ provide('selectedMatchInfo', selectedMatchInfo)
 provide('activeTab', activeTab)
 provide('analysisData', analysisData)
 
+const matchContext = computed(() => {
+  if (!matchInfo.value) return ''
+  const m = matchInfo.value
+  const a = analysisData.value
+  const parts = []
+  parts.push(`${m.home_team || '主队'} vs ${m.away_team || '客队'}`)
+  if (a?.league_round) parts.push(a.league_round)
+  if (m.home_score !== undefined && m.home_score !== null) parts.push(`比分 ${m.home_score}-${m.away_score}`)
+  const st = statusText(m.status)
+  if (st) parts.push(st)
+  const mt = formatMatchTime(m.start_time)
+  if (mt) parts.push(mt)
+  if (a?.venue) parts.push(a.venue)
+  if (a?.weather) parts.push(a.weather)
+  if (a?.temperature) parts.push(a.temperature)
+  return parts.join(' | ')
+})
+
 function onDateChange() {
   selectedMatchId.value = null
   selectedMatchInfo.value = null
   matchInfo.value = null
   analysisData.value = null
+  // 切换日期时预加载新日期的500映射
+  preloadFiveMapping()
+  // 切换日期时滚动回顶
+  scrollToTop()
 }
 
 function onMatchSelect(matchData) {
@@ -117,6 +173,8 @@ function onMatchSelect(matchData) {
     selectedMatchInfo.value = null
     matchInfo.value = null
   }
+  // 切换比赛时滚动回顶
+  scrollToTop()
 }
 
 function statusText(s) {
@@ -142,6 +200,18 @@ function onLogoError(e) {
   } else {
     img.style.display = 'none'
   }
+}
+
+function scrollToTop() {
+  const tabContent = document.querySelector('.tab-content')
+  if (tabContent) {
+    tabContent.scrollTop = 0
+  }
+}
+
+function switchTab(tab) {
+  activeTab.value = tab
+  scrollToTop()
 }
 </script>
 
@@ -269,10 +339,16 @@ function onLogoError(e) {
   cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s;
   &:hover { color: #1890ff; }
   &.active { color: #1890ff; font-weight: 600; border-bottom-color: #1890ff; }
+  &.locked-tab { color: #bbb; &:hover { color: #faad14; } }
 }
 
 .tab-content {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
+
+  &.no-scroll {
+    overflow: hidden;
+  }
 }
 </style>

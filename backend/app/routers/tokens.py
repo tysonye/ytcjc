@@ -51,6 +51,7 @@ def update_quota(req: TokenQuotaUpdate, current_user: User = Depends(get_current
 @router.get("/statistics")
 def get_statistics(
     user_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     query = db.query(TokenUsage)
@@ -63,7 +64,7 @@ def get_statistics(
 
 
 @router.get("/ai/config", response_model=AIConfigResponse)
-def get_ai_config(db: Session = Depends(get_db)):
+def get_ai_config(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     config = db.query(AIConfig).first()
     if not config:
         config = AIConfig(base_url="", api_key="", model_name="", system_prompt="你是一位专业的足球分析师，擅长分析比赛数据、赔率走势和球队表现。")
@@ -74,7 +75,7 @@ def get_ai_config(db: Session = Depends(get_db)):
 
 
 @router.put("/ai/config", response_model=AIConfigResponse)
-def update_ai_config(req: AIConfigUpdate, db: Session = Depends(get_db)):
+def update_ai_config(req: AIConfigUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     config = db.query(AIConfig).first()
     if not config:
         config = AIConfig()

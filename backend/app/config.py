@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ytcjc.db")
 SECRET_KEY = os.getenv("SECRET_KEY", "ytcjc-secret-key-change-in-production-2026")

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import request from '../utils/request'
 
 const TITAN_SECTIONS = [
   { key: 'odds_trend', label: '即时指数', visible: true, group: '赔率数据' },
@@ -22,11 +23,13 @@ const TITAN_SECTIONS = [
 
 const FIVE_SECTIONS = [
   { key: 'basic_info', label: '基本信息', visible: true, group: '基础数据' },
-  { key: 'jiben', label: '基本面', visible: true, group: '基础数据' },
-  { key: 'jiaofeng', label: '交锋记录', visible: true, group: '基础数据' },
-  { key: 'ouzhi', label: '欧指详情', visible: true, group: '赔率数据' },
-  { key: 'yapan', label: '亚盘详情', visible: true, group: '赔率数据' },
-  { key: 'daxiao', label: '大小球详情', visible: true, group: '赔率数据' },
+  { key: 'recent_form', label: '近况走势', visible: true, group: '基础数据' },
+  { key: 'h2h_record', label: '对赛成绩', visible: true, group: '基础数据' },
+  { key: 'recommendation', label: '推介分析', visible: true, group: '基础数据' },
+  { key: 'european_odds', label: '欧指详情', visible: true, group: '赔率数据' },
+  { key: 'asian_odds', label: '亚盘详情', visible: true, group: '赔率数据' },
+  { key: 'overunder_odds', label: '大小球详情', visible: true, group: '赔率数据' },
+  { key: 'kelly_index', label: '凯利指数', visible: false, group: '赔率数据' },
 ]
 
 const MACAU_SECTIONS = [
@@ -42,6 +45,7 @@ export const useSectionsStore = defineStore('sections', {
     titan: TITAN_SECTIONS.map(s => ({ ...s })),
     five: FIVE_SECTIONS.map(s => ({ ...s })),
     macau: MACAU_SECTIONS.map(s => ({ ...s })),
+    loaded: false,
   }),
   getters: {
     getVisibleSections: (state) => (source) => {
@@ -77,6 +81,42 @@ export const useSectionsStore = defineStore('sections', {
           s.visible = allowed ? allowed.includes(s.key) : true
         }
       })
+    },
+    async loadFromServer() {
+      const token = localStorage.getItem('token')
+      if (!token) { this.loaded = true; return }
+      try {
+        const data = await request.get('/user-config/sections')
+        if (data.titan_config) {
+          const config = JSON.parse(data.titan_config)
+          this.titan.forEach(s => {
+            s.visible = config[s.key] !== undefined ? config[s.key] : s.visible
+          })
+        }
+        if (data.five_config) {
+          const config = JSON.parse(data.five_config)
+          this.five.forEach(s => {
+            s.visible = config[s.key] !== undefined ? config[s.key] : s.visible
+          })
+        }
+        this.loaded = true
+      } catch {
+        this.loaded = true
+      }
+    },
+    async saveToServer() {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      const titanConfig = {}
+      this.titan.forEach(s => { titanConfig[s.key] = s.visible })
+      const fiveConfig = {}
+      this.five.forEach(s => { fiveConfig[s.key] = s.visible })
+      try {
+        await request.put('/user-config/sections', {
+          titan_config: JSON.stringify(titanConfig),
+          five_config: JSON.stringify(fiveConfig),
+        })
+      } catch {}
     },
   },
 })
