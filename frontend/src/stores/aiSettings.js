@@ -75,6 +75,9 @@ export const useAISettingsStore = defineStore('aiSettings', {
       this.customPrompt = prompt
       this._save()
     },
+    save() {
+      this._save()
+    },
     _save() {
       const data = {
         preset: this.preset,

@@ -8,6 +8,8 @@
         <router-link to="/admin/tokens" class="admin-nav-item" :class="{ active: $route.path === '/admin/tokens' }">Token统计</router-link>
         <router-link to="/admin/stats" class="admin-nav-item" :class="{ active: $route.path === '/admin/stats' }">数据统计</router-link>
         <router-link to="/admin/roles" class="admin-nav-item" :class="{ active: $route.path === '/admin/roles' }">角色权限</router-link>
+        <router-link to="/admin/membership-permissions" class="admin-nav-item" :class="{ active: $route.path === '/admin/membership-permissions' }">会员权限</router-link>
+        <router-link to="/admin/ai-manage" class="admin-nav-item" :class="{ active: $route.path === '/admin/ai-manage' }">AI管理</router-link>
       </nav>
     </aside>
     <main class="admin-main"><router-view /></main>

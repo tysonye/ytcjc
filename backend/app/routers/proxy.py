@@ -5,10 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict
 from sqlalchemy.orm import Session
+from datetime import datetime
 
-from app.config import PROXY_ALLOWED_DOMAINS
+from app.config import PROXY_ALLOWED_DOMAINS, AI_BASE_URL, AI_API_KEY
 from app.database import get_db
-from app.models import User
+from app.models import User, AIConfig, TokenUsage
 from app.services.auth_service import get_current_user
 
 router = APIRouter(prefix="/api/proxy", tags=["CORS代理"])
@@ -71,20 +72,18 @@ async def proxy_request(req: ProxyRequest):
         raise HTTPException(status_code=502, detail=f"请求失败: {str(e)}")
 
 
-# 已废弃 - 前端现在直接使用 Vercel 边缘代理
-# @router.post("/fetch")
-# async def proxy_fetch(req: ProxyRequest):
-#     return await proxy_request(req)
-
-
 @router.post("/ai-chat")
-async def ai_chat_proxy(req: Dict, current_user: User = Depends(get_current_user)):
+async def ai_chat_proxy(req: Dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     message = req.get("message", "")
     context = req.get("context", "")
     settings = req.get("settings", {})
 
-    from app.config import AI_BASE_URL, AI_API_KEY
-    if not AI_BASE_URL or not AI_API_KEY:
+    ai_config = db.query(AIConfig).order_by(AIConfig.id.desc()).first()
+    base_url = ai_config.base_url if (ai_config and ai_config.base_url) else AI_BASE_URL
+    api_key = ai_config.api_key if (ai_config and ai_config.api_key) else AI_API_KEY
+    model_name = ai_config.model_name if (ai_config and ai_config.model_name) else "auto"
+
+    if not base_url or not api_key:
         return {
             "reply": f"AI服务尚未配置。\n\n您的问题是：{message}\n\n作为足球分析师的初步建议：\n1. 请查看比赛的赔率走势变化\n2. 关注两队近期交锋记录\n3. 分析球队主客场战绩差异\n4. 参考积分榜排名情况\n\n如需更详细的分析，请联系管理员配置AI服务。"
         }
@@ -109,6 +108,9 @@ async def ai_chat_proxy(req: Dict, current_user: User = Depends(get_current_user
         temperature = settings.get('temperature', 0.7)
 
         base_prompt = "你是一位专业的足球数据分析分析师，精通竞彩赔率分析、球队实力评估、历史交锋分析。"
+
+        if ai_config and ai_config.system_prompt:
+            base_prompt = ai_config.system_prompt
 
         if preset == 'conservative':
             base_prompt += "你的分析风格偏稳健，基于数据给出保守建议，强调风险提示，不轻易下结论。"
@@ -148,11 +150,14 @@ async def ai_chat_proxy(req: Dict, current_user: User = Depends(get_current_user
             messages.append({"role": "user", "content": message})
 
             full_content = ""
+            total_input_tokens = 0
+            total_output_tokens = 0
+
             async with client.stream(
                 "POST",
-                f"{AI_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "auto", "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": True},
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model_name, "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": True},
             ) as resp:
                 async for line in resp.aiter_lines():
                     if line.startswith("data: "):
@@ -160,14 +165,42 @@ async def ai_chat_proxy(req: Dict, current_user: User = Depends(get_current_user
                         if data_str.strip() == "[DONE]":
                             break
                         try:
-                            import json as _json
-                            data = _json.loads(data_str)
+                            data = json.loads(data_str)
                             delta = data.get("choices", [{}])[0].get("delta", {})
                             content = delta.get("content", "")
                             if content:
                                 full_content += content
+                            usage = data.get("usage")
+                            if usage:
+                                total_input_tokens = usage.get("prompt_tokens", 0)
+                                total_output_tokens = usage.get("completion_tokens", 0)
                         except Exception:
                             pass
-            return {"reply": full_content or "无法获取回复"}
+
+            if total_input_tokens == 0 and total_output_tokens == 0:
+                approx_input = sum(len(m["content"]) for m in messages) // 4
+                approx_output = len(full_content) // 4
+                total_input_tokens = approx_input
+                total_output_tokens = approx_output
+
+            usage_record = TokenUsage(
+                user_id=current_user.id,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                model_name=model_name,
+                request_text_preview=message[:200],
+            )
+            db.add(usage_record)
+            current_user.token_used += total_input_tokens + total_output_tokens
+            db.commit()
+
+            return {
+                "reply": full_content or "无法获取回复",
+                "token_usage": {
+                    "input_tokens": total_input_tokens,
+                    "output_tokens": total_output_tokens,
+                    "total_tokens": total_input_tokens + total_output_tokens,
+                },
+            }
     except Exception as e:
         return {"reply": f"AI服务调用失败: {str(e)}"}

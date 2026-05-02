@@ -45,6 +45,8 @@ class Role(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), unique=True, nullable=False)
     permissions = Column(Text, default="{}")
+    sections = Column(Text, default="")
+    description = Column(Text, default="")
     created_at = Column(DateTime, server_default=func.now())
 
     admins = relationship("Admin", back_populates="role")
@@ -78,6 +80,7 @@ class Plan(Base):
     price_yearly = Column(Float, default=0)
     token_amount = Column(Integer, default=0)
     description = Column(Text, default="")
+    sections = Column(Text, default="")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -115,4 +118,5 @@ class AIConfig(Base):
     api_key = Column(String(200), default="")
     model_name = Column(String(50), default="")
     system_prompt = Column(Text, default="")
+    secret_key = Column(String(200), default="")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

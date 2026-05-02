@@ -53,7 +53,6 @@ import { ref, computed, onMounted, onUnmounted, watch, inject, markRaw } from 'v
 import { useSectionsStore } from '../stores/sections'
 import { ElMessage } from 'element-plus'
 import { SmartCache, BackgroundRefresher, REFRESH_INTERVAL, CACHE_STRATEGY } from '../utils/fiveMatchMapper'
-import TitanMatchInfo from '../components/titan/TitanMatchInfo.vue'
 import TitanStandings from '../components/titan/TitanStandings.vue'
 import TitanOddsTrend from '../components/titan/TitanOddsTrend.vue'
 import TitanJcIndex from '../components/titan/TitanJcIndex.vue'
@@ -172,18 +171,6 @@ function getTitanProps(key) {
     }
   }
   return result
-}
-
-function statusText(s) {
-  return { '0': '未开始', '1': '上半场', '-1': '中场', '2': '下半场', '-2': '完场' }[String(s)] || ''
-}
-
-function formatTime(t) {
-  if (!t) return ''
-  try {
-    const d = new Date(t)
-    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-  } catch { return t }
 }
 
 function decodeBuffer(buffer) {

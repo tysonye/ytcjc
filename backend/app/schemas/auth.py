@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -19,6 +19,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user_info: "UserResponse"
+    accessible_sections: List[str] = []
 
 
 class UserResponse(BaseModel):

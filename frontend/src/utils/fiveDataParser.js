@@ -376,7 +376,3 @@ export function parseDaxiaoPage(html) {
 
   return result
 }
-
-export function parseFiveData(html) {
-  return parseShujuPage(html)
-}

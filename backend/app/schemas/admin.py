@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Dict
 
 
 class AdminLoginRequest(BaseModel):
@@ -10,17 +10,7 @@ class AdminLoginRequest(BaseModel):
 class AdminCreate(BaseModel):
     username: str
     password: str
-    role_id: Optional[int] = None
-
-
-class RoleCreate(BaseModel):
-    name: str
-    permissions: str = "{}"
-
-
-class RoleUpdate(BaseModel):
-    name: Optional[str] = None
-    permissions: Optional[str] = None
+    role_id: int | None = None
 
 
 class StatisticsResponse(BaseModel):

@@ -87,6 +87,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import request from '../../utils/request'
 
 const loading = ref(false)
 const users = ref([])
@@ -115,12 +116,10 @@ function formatDate(d) { try { return new Date(d).toLocaleDateString('zh-CN') } 
 async function fetchUsers() {
   loading.value = true
   try {
-    const token = localStorage.getItem('adminToken')
-    const resp = await fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } })
-    const data = await resp.json()
-    users.value = data.items || data
+    const data = await request.get('/admin/users')
+    users.value = data.items || data || []
   } catch (e) {
-    ElMessage.error('获取会员列表失败')
+    ElMessage.error('获取会员列表失败：' + (e.response?.data?.detail || e.message || '网络错误'))
   } finally {
     loading.value = false
   }
@@ -133,16 +132,13 @@ function openEdit(row) {
 
 async function saveEdit() {
   try {
-    const token = localStorage.getItem('adminToken')
-    await fetch(`/api/admin/users/${editForm.value.id}`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(editForm.value),
-    })
+    await request.put(`/admin/users/${editForm.value.id}`, editForm.value)
     ElMessage.success('保存成功')
     editVisible.value = false
     fetchUsers()
-  } catch (e) { ElMessage.error('保存失败') }
+  } catch (e) {
+    ElMessage.error('保存失败')
+  }
 }
 
 function openLevelDialog(row) {
@@ -152,28 +148,26 @@ function openLevelDialog(row) {
 
 async function saveLevel() {
   try {
-    const token = localStorage.getItem('adminToken')
-    await fetch(`/api/admin/users/${levelForm.value.user_id}/level`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ membership_level: levelForm.value.level, duration_days: levelForm.value.duration }),
+    await request.put(`/admin/users/${levelForm.value.user_id}/level`, {
+      membership_level: levelForm.value.level,
+      duration_days: levelForm.value.duration,
     })
     ElMessage.success('等级调整成功')
     levelVisible.value = false
     fetchUsers()
-  } catch (e) { ElMessage.error('调整失败') }
+  } catch (e) {
+    ElMessage.error('调整失败')
+  }
 }
 
 async function toggleActive(row) {
   try {
-    const token = localStorage.getItem('adminToken')
-    await fetch(`/api/admin/users/${row.id}/toggle-active`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    await request.put(`/admin/users/${row.id}/toggle-active`)
     ElMessage.success('操作成功')
     fetchUsers()
-  } catch (e) { ElMessage.error('操作失败') }
+  } catch (e) {
+    ElMessage.error('操作失败')
+  }
 }
 
 onMounted(fetchUsers)

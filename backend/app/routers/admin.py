@@ -1,13 +1,13 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Optional
+import json
 
 from app.database import get_db
-from app.models import User, Admin, Role, Order, TokenUsage
-from app.schemas.admin import AdminLoginRequest, AdminCreate, RoleCreate, RoleUpdate, StatisticsResponse
-from app.services.auth_service import hash_password, verify_password, create_access_token, get_current_admin
-from app.schemas.user import UserListResponse
+from app.models import User, Admin, Role, Order, TokenUsage, Plan, AIConfig
+from app.schemas.admin import AdminLoginRequest, AdminCreate, StatisticsResponse
+from app.services.auth_service import hash_password, verify_password, create_access_token, get_current_admin, clear_secret_cache
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
 
@@ -99,7 +99,7 @@ def admin_list_orders(admin: Admin = Depends(get_current_admin), db: Session = D
     return [
         {
             "id": o.id, "order_no": o.order_no, "username": db.query(User).filter(User.id == o.user_id).first().username if o.user_id else "",
-            "plan_name": o.plan_name, "amount": o.amount, "status": o.payment_status,
+            "plan_name": o.plan.name if o.plan else "", "amount": o.amount, "status": o.payment_status,
             "created_at": o.created_at.isoformat() if o.created_at else None,
         }
         for o in orders
@@ -114,8 +114,8 @@ def admin_confirm_order(order_id: int, admin: Admin = Depends(get_current_admin)
     order.payment_status = "paid"
     order.paid_at = datetime.now()
     user = db.query(User).filter(User.id == order.user_id).first()
-    if user and order.plan_level:
-        user.membership_level = order.plan_level
+    if user and order.plan:
+        user.membership_level = order.plan.level
         user.membership_expires_at = datetime.now() + timedelta(days=30)
     db.commit()
     return {"status": "ok"}
@@ -181,13 +181,21 @@ def admin_stats_overview(admin: Admin = Depends(get_current_admin), db: Session 
 @router.get("/roles")
 def admin_list_roles(admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
     roles = db.query(Role).all()
-    return [
-        {
-            "id": r.id, "name": r.name, "level": r.name.lower() if r.name else "free",
-            "description": r.permissions or "", "sections": ["titan", "five", "macau", "odds_trend", "jc_index", "detail", "ai_chat", "history"],
-        }
-        for r in roles
-    ]
+    result = []
+    for r in roles:
+        sections = []
+        if r.sections:
+            try:
+                sections = json.loads(r.sections)
+            except:
+                sections = []
+        result.append({
+            "id": r.id,
+            "name": r.name,
+            "description": r.description or "",
+            "sections": sections,
+        })
+    return result
 
 
 @router.put("/roles/{role_id}")
@@ -198,20 +206,35 @@ def admin_update_role(role_id: int, req: dict, admin: Admin = Depends(get_curren
     if "name" in req:
         role.name = req["name"]
     if "description" in req:
-        role.permissions = req["description"]
+        role.description = req["description"]
     if "sections" in req:
-        role.permissions = ",".join(req["sections"])
+        role.sections = json.dumps(req["sections"], ensure_ascii=False)
     db.commit()
     return {"status": "ok"}
 
 
 @router.post("/roles")
 def create_role(req: dict, admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
-    role = Role(name=req.get("name", ""), permissions=req.get("permissions", ""))
+    role = Role(name=req.get("name", ""), permissions=req.get("permissions", "{}"), description=req.get("description", ""))
+    if "sections" in req:
+        role.sections = json.dumps(req["sections"], ensure_ascii=False)
     db.add(role)
     db.commit()
     db.refresh(role)
     return {"id": role.id, "name": role.name}
+
+
+@router.delete("/roles/{role_id}")
+def delete_role(role_id: int, admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    admin_count = db.query(Admin).filter(Admin.role_id == role_id).count()
+    if admin_count > 0:
+        raise HTTPException(status_code=400, detail=f"该角色下有{admin_count}个管理员，无法删除")
+    db.delete(role)
+    db.commit()
+    return {"status": "ok"}
 
 
 @router.get("/statistics", response_model=StatisticsResponse)
@@ -250,3 +273,139 @@ def create_admin(req: AdminCreate, admin: Admin = Depends(get_current_admin), db
     db.add(new_admin)
     db.commit()
     return {"status": "ok"}
+
+
+SECTION_OPTIONS = [
+    {"key": "titan", "label": "球探数据"},
+    {"key": "five", "label": "500数据"},
+    {"key": "macau", "label": "澳门数据"},
+    {"key": "odds_trend", "label": "即时指数"},
+    {"key": "jc_index", "label": "竞足数据"},
+    {"key": "detail", "label": "盘口详情"},
+    {"key": "ai_chat", "label": "AI分析"},
+    {"key": "history", "label": "历史数据"},
+]
+
+
+@router.get("/membership-permissions")
+def get_membership_permissions(admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    plans = db.query(Plan).filter(Plan.is_active == True).all()
+    result = []
+    for plan in plans:
+        sections = []
+        if plan.sections:
+            try:
+                sections = json.loads(plan.sections)
+            except:
+                sections = []
+        result.append({
+            "id": plan.id,
+            "name": plan.name,
+            "level": plan.level,
+            "sections": sections,
+            "token_amount": plan.token_amount,
+            "description": plan.description,
+        })
+    return {"items": result, "available_sections": SECTION_OPTIONS}
+
+
+@router.put("/membership-permissions/{plan_id}")
+def update_membership_permissions(
+    plan_id: int,
+    data: dict,
+    admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    if "sections" in data:
+        plan.sections = json.dumps(data["sections"], ensure_ascii=False)
+    if "token_amount" in data:
+        plan.token_amount = data["token_amount"]
+    if "description" in data:
+        plan.description = data["description"]
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/membership-levels")
+def get_membership_levels(admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    levels = ["free", "silver", "gold", "diamond"]
+    plans = db.query(Plan).filter(Plan.is_active == True).all()
+    result = []
+    for level in levels:
+        plan = next((p for p in plans if p.level == level), None)
+        sections = []
+        if plan and plan.sections:
+            try:
+                sections = json.loads(plan.sections)
+            except:
+                sections = []
+        result.append({
+            "level": level,
+            "label": {"free": "免费", "silver": "白银", "gold": "黄金", "diamond": "钻石"}.get(level, level),
+            "plan_id": plan.id if plan else None,
+            "sections": sections,
+            "token_amount": plan.token_amount if plan else 0,
+        })
+    return {"levels": result, "available_sections": SECTION_OPTIONS}
+
+
+@router.get("/ai-config")
+def get_ai_config(admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    config = db.query(AIConfig).first()
+    if not config:
+        return {"base_url": "", "api_key": "", "model_name": "", "system_prompt": "", "secret_key": ""}
+    return {
+        "id": config.id,
+        "base_url": config.base_url,
+        "api_key": config.api_key,
+        "model_name": config.model_name,
+        "system_prompt": config.system_prompt,
+        "secret_key": config.secret_key,
+    }
+
+
+@router.put("/ai-config")
+def update_ai_config(data: dict, admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    config = db.query(AIConfig).first()
+    if not config:
+        config = AIConfig()
+        db.add(config)
+    if "base_url" in data:
+        config.base_url = data["base_url"]
+    if "api_key" in data:
+        config.api_key = data["api_key"]
+    if "model_name" in data:
+        config.model_name = data["model_name"]
+    if "system_prompt" in data:
+        config.system_prompt = data["system_prompt"]
+    if "secret_key" in data and data["secret_key"]:
+        config.secret_key = data["secret_key"]
+        clear_secret_cache()
+    db.commit()
+    db.refresh(config)
+    return {"status": "ok", "id": config.id}
+
+
+@router.get("/token-stats")
+def get_token_stats(admin: Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    result = []
+    for u in users:
+        usages = db.query(TokenUsage).filter(TokenUsage.user_id == u.id).all()
+        total_input = sum(t.input_tokens for t in usages)
+        total_output = sum(t.output_tokens for t in usages)
+        result.append({
+            "user_id": u.id,
+            "username": u.username,
+            "membership_level": u.membership_level,
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_tokens": total_input + total_output,
+            "request_count": len(usages),
+            "token_quota": u.token_quota,
+            "token_used": u.token_used,
+        })
+    return {"items": result}

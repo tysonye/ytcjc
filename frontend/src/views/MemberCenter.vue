@@ -21,6 +21,39 @@
           <div class="token-info">
             <el-progress :percentage="tokenPercent" :status="tokenStatus" />
             <p>已用: {{ userStore.userInfo?.token_used || 0 }} / {{ userStore.userInfo?.token_quota || 0 }}</p>
+            <p v-if="tokenRemaining > 0" class="token-remain">剩余: {{ tokenRemaining }}</p>
+            <p v-else class="token-exhausted">额度已用尽，请联系管理员充值</p>
+          </div>
+        </el-card>
+
+        <el-card style="margin-top:15px">
+          <template #header><span>AI使用记录</span></template>
+          <el-table :data="tokenUsages" stripe size="small" empty-text="暂无使用记录" max-height="300">
+            <el-table-column prop="created_at" label="时间" width="160">
+              <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="model_name" label="模型" width="100" />
+            <el-table-column prop="input_tokens" label="输入Token" width="90" />
+            <el-table-column prop="output_tokens" label="输出Token" width="90" />
+            <el-table-column label="合计" width="80">
+              <template #default="{ row }">{{ row.input_tokens + row.output_tokens }}</template>
+            </el-table-column>
+            <el-table-column prop="request_text_preview" label="提问预览" min-width="120" show-overflow-tooltip />
+          </el-table>
+        </el-card>
+
+        <el-card style="margin-top:15px">
+          <template #header><span>当前可访问板块</span></template>
+          <div class="sections-info">
+            <el-tag
+              v-for="s in userStore.accessibleSections"
+              :key="s"
+              size="small"
+              effect="plain"
+              style="margin:2px"
+            >{{ sectionLabel(s) }}</el-tag>
+            <p v-if="!userStore.accessibleSections.length" class="no-sections">暂无可访问板块</p>
+            <p class="sections-hint">升级会员可解锁更多板块</p>
           </div>
         </el-card>
       </el-col>
@@ -72,10 +105,22 @@
 import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '../stores/user'
 import { UserFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import request from '../utils/request'
 
 const userStore = useUserStore()
 const orders = ref([])
+const tokenUsages = ref([])
+
+const SECTION_LABELS = {
+  titan: '球探数据', five: '500数据', macau: '澳门数据',
+  odds_trend: '即时指数', jc_index: '竞足数据', detail: '盘口详情',
+  ai_chat: 'AI分析', history: '历史数据',
+}
+
+function sectionLabel(key) {
+  return SECTION_LABELS[key] || key
+}
 
 const plans = [
   {
@@ -107,7 +152,12 @@ const levelLabel = computed(() => ({ free: '免费用户', silver: '白银会员
 const tokenPercent = computed(() => {
   const quota = userStore.userInfo?.token_quota || 0
   const used = userStore.userInfo?.token_used || 0
-  return quota > 0 ? Math.round((used / quota) * 100) : 0
+  return quota > 0 ? Math.min(Math.round((used / quota) * 100), 100) : 0
+})
+const tokenRemaining = computed(() => {
+  const quota = userStore.userInfo?.token_quota || 0
+  const used = userStore.userInfo?.token_used || 0
+  return Math.max(quota - used, 0)
 })
 const tokenStatus = computed(() => {
   if (tokenPercent.value >= 90) return 'exception'
@@ -133,9 +183,20 @@ async function fetchOrders() {
   } catch (e) {}
 }
 
+async function fetchTokenUsages() {
+  try {
+    tokenUsages.value = await request.get('/tokens/usage?limit=50')
+  } catch (e) {}
+}
+
+function formatDateTime(d) {
+  try { return new Date(d).toLocaleString('zh-CN') } catch { return d }
+}
+
 onMounted(async () => {
   await userStore.fetchUserInfo()
   fetchOrders()
+  fetchTokenUsages()
 })
 </script>
 
@@ -146,6 +207,11 @@ onMounted(async () => {
 .user-profile h3 { margin: 10px 0 6px; }
 .expire-info { font-size: 12px; color: $text-secondary; margin-top: 8px; }
 .token-info p { margin-top: 8px; font-size: 13px; color: $text-secondary; }
+.token-remain { color: #67c23a !important; }
+.token-exhausted { color: #f56c6c !important; font-weight: 600; }
+.sections-info { padding: 4px 0; }
+.no-sections { color: #999; font-size: 13px; margin: 8px 0 0; }
+.sections-hint { color: #999; font-size: 12px; margin-top: 10px; }
 
 .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
 

@@ -27,10 +27,9 @@
 </template>
 
 <script setup>
-import { ref, nextTick, defineProps, watch, computed } from 'vue'
+import { ref, nextTick, watch, computed } from 'vue'
 import { ArrowDown, ChatDotRound, User } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import { ElMessage } from 'element-plus'
 import { useAISettingsStore } from '../stores/aiSettings'
 import { useUserStore } from '../stores/user'
 
@@ -49,11 +48,9 @@ const welcomeMsg = computed(() => {
 const messages = ref([
   { role: 'assistant', content: welcomeMsg.value }
 ])
-const welcomeAnimating = ref(false)
 
 watch(welcomeMsg, (val) => {
   if (messages.value.length === 1 && messages.value[0].role === 'assistant') {
-    welcomeAnimating.value = true
     messages.value[0].content = ''
     const chars = val.split('')
     let idx = 0
@@ -63,7 +60,6 @@ watch(welcomeMsg, (val) => {
         idx++
       } else {
         clearInterval(timer)
-        welcomeAnimating.value = false
       }
     }, 20)
   }

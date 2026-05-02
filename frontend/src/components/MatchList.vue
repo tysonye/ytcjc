@@ -104,7 +104,6 @@ const loading = ref(false)
 const matches = ref([])
 const filterLeague = ref('')
 const filterStatus = ref('')
-const getRandomRefreshInterval = () => Math.floor(Math.random() * (5 - 1 + 1) + 1) * 60000
 let refreshTimer = null
 let minuteTimer = null
 
@@ -397,12 +396,6 @@ function parseTitanData(text) {
     })
   })
   return list
-}
-
-function parseTitanList(text) {
-  const list = parseTitanData(text)
-  matches.value = list
-  if (list.length > 0 && !props.selectedId) selectMatch(list[0])
 }
 
 async function loadDetailData(scheduleId) {

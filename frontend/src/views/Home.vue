@@ -42,11 +42,11 @@
       <div class="detail-toolbar">
         <div class="toolbar-tabs">
           <span class="toolbar-tab" :class="{ active: activeTab === 'titan' }" @click="switchTab('titan')">球探数据</span>
-          <span class="toolbar-tab" :class="{ active: activeTab === 'five' }" @click="switchTab('five')">500数据</span>
-          <span class="toolbar-tab" :class="{ active: activeTab === 'macau' }" @click="switchTab('macau')">澳博数据</span>
-          <span class="toolbar-tab" :class="{ active: activeTab === 'jcbet' }" @click="switchTab('jcbet')">竞彩模拟投注</span>
-          <span v-if="userStore.isLoggedIn" class="toolbar-tab" :class="{ active: activeTab === 'aipredict' }" @click="switchTab('aipredict')">AI预测</span>
-          <span v-else class="toolbar-tab locked-tab" @click="goLogin">AI预测 🔒</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'five', locked: !userStore.canAccess('five') }" @click="trySwitchTab('five')">500数据</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'macau', locked: !userStore.canAccess('macau') }" @click="trySwitchTab('macau')">澳博数据</span>
+          <span class="toolbar-tab" :class="{ active: activeTab === 'jcbet', locked: !userStore.canAccess('jc_index') }" @click="trySwitchTab('jcbet')">竞彩模拟投注</span>
+          <span v-if="userStore.canAccess('ai_chat')" class="toolbar-tab" :class="{ active: activeTab === 'aipredict' }" @click="switchTab('aipredict')">AI预测</span>
+          <span v-else class="toolbar-tab locked-tab" @click="showUpgradeHint('ai_chat')">AI预测 🔒</span>
         </div>
         <el-button size="small" @click="sectionConfigRef?.open(activeTab)">
           <el-icon><Setting /></el-icon> 板块配置
@@ -74,6 +74,7 @@ import SectionConfig from '../components/SectionConfig.vue'
 import AIChat from '../components/AIChat.vue'
 import { useUserStore } from '../stores/user'
 import { preloadFiveMapping, refresher } from '../utils/fiveMatchMapper'
+import { ElMessage } from 'element-plus'
 
 const selectedMatchId = ref(null)
 const selectedMatchInfo = ref(null)
@@ -88,17 +89,53 @@ const route = useRoute()
 
 onMounted(() => {
   const tab = route.query.tab
-  if (tab === 'aipredict' && userStore.isLoggedIn) {
+  if (tab === 'aipredict' && userStore.canAccess('ai_chat')) {
     activeTab.value = 'aipredict'
   }
-  // 后台静默预加载当天500.com映射
   preloadFiveMapping()
+  if (userStore.isLoggedIn) {
+    userStore.refreshSections()
+  }
 })
 
 onUnmounted(() => {
-  // 页面卸载时停止所有后台刷新
   refresher.stopAll()
 })
+
+const SECTION_TAB_MAP = {
+  five: 'five',
+  macau: 'macau',
+  jcbet: 'jc_index',
+  aipredict: 'ai_chat',
+}
+
+const SECTION_LABELS = {
+  five: '500数据',
+  macau: '澳博数据',
+  jc_index: '竞彩模拟投注',
+  ai_chat: 'AI预测',
+}
+
+function trySwitchTab(tab) {
+  const sectionKey = SECTION_TAB_MAP[tab]
+  if (sectionKey && !userStore.canAccess(sectionKey)) {
+    showUpgradeHint(sectionKey)
+    return
+  }
+  switchTab(tab)
+}
+
+function showUpgradeHint(sectionKey) {
+  const label = SECTION_LABELS[sectionKey] || sectionKey
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning(`请登录后访问${label}，或升级会员解锁更多功能`)
+    router.push({ path: '/login', query: { redirect: '/' } })
+  } else {
+    const level = userStore.membershipLevel
+    const levelNames = { free: '免费', silver: '白银', gold: '黄金', diamond: '钻石' }
+    ElMessage.warning(`当前${levelNames[level] || level}会员无法访问${label}，请升级会员等级`)
+  }
+}
 
 function goLogin() {
   router.push({ path: '/login', query: { redirect: '/', tab: 'aipredict' } })
@@ -109,6 +146,14 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
     activeTab.value = 'titan'
   }
 })
+
+watch(() => userStore.accessibleSections, () => {
+  const tabSectionMap = { five: 'five', macau: 'macau', jcbet: 'jc_index', aipredict: 'ai_chat' }
+  const currentSection = tabSectionMap[activeTab.value]
+  if (currentSection && !userStore.canAccess(currentSection)) {
+    activeTab.value = 'titan'
+  }
+}, { deep: true })
 
 function formatDate(date) {
   const y = date.getFullYear()
@@ -340,6 +385,7 @@ function switchTab(tab) {
   &:hover { color: #1890ff; }
   &.active { color: #1890ff; font-weight: 600; border-bottom-color: #1890ff; }
   &.locked-tab { color: #bbb; &:hover { color: #faad14; } }
+  &.locked { color: #bbb; &:hover { color: #faad14; } }
 }
 
 .tab-content {

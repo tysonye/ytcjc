@@ -290,7 +290,6 @@ class SmartCache {
 
 const mappingCache = new SmartCache('five_mapping', CACHE_STRATEGY.mapping)
 const titanCache = new SmartCache('titan_matches', CACHE_STRATEGY.titanMatches)
-const fiveDataCache = new SmartCache('five_data', CACHE_STRATEGY.fiveData)
 
 // ==================== 新增：后台静默刷新管理器 ====================
 
@@ -629,83 +628,6 @@ async function findFiveMatchIdByMatchId(titanMatchInfo) {
 
 // ==================== 新增：批量获取当天所有500比赛并建立映射 ====================
 
-async function buildFiveMappingForDate(date) {
-  const cached = mappingCache.get(date)
-  if (cached) {
-    console.log('[500Mapper] buildFiveMappingForDate cache hit for', date, ':', cached.size, 'matches')
-    return cached
-  }
-
-  // 500.com竞彩使用?e=期号参数，期号格式为yyyy-MM-dd
-  // 同时尝试?e=和?date=两种参数
-  const urls = []
-  if (date) {
-    urls.push(`/live500-proxy/?e=${date}`)
-    urls.push(`/live500-proxy/?date=${date}`)
-  }
-  urls.push('/live500-proxy/')
-
-  for (const url of urls) {
-    console.log('[500Mapper] buildFiveMappingForDate fetching:', url)
-
-    try {
-      const html = await fetchWithGbkFallback(url)
-      if (!html) {
-        console.warn('[500Mapper] buildFiveMappingForDate: html is null for', url)
-        continue
-      }
-      console.log('[500Mapper] buildFiveMappingForDate: html length', html.length)
-
-      const hasMatchData = html.includes('周') && /周[一二三四五六日]\d{3}/.test(html)
-      console.log('[500Mapper] buildFiveMappingForDate: has match data?', hasMatchData)
-      if (!hasMatchData) continue
-
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(html, 'text/html')
-
-      const rowsById = doc.querySelectorAll('tr[id^="a"]')
-      const allRows = doc.querySelectorAll('tr')
-      console.log('[500Mapper] buildFiveMappingForDate: found', rowsById.length, 'rows by id^=a,', allRows.length, 'total rows')
-
-      const mapping = new Map()
-
-      if (rowsById.length > 0) {
-        rowsById.forEach((row, idx) => {
-          const matchId = extractMatchIdFromRow(row)
-          const fid = row.getAttribute('fid') || row.id?.replace('a', '')
-          if (matchId && fid) {
-            mapping.set(matchId, fid)
-            if (idx < 3) console.log('[500Mapper] mapping entry:', matchId, '->', fid)
-          }
-        })
-      } else if (allRows.length > 0) {
-        console.log('[500Mapper] falling back to all rows')
-        allRows.forEach((row, idx) => {
-          const matchId = extractMatchIdFromRow(row)
-          const fid = row.getAttribute('fid') || row.id?.replace('a', '') || row.querySelector('a[href*="fenxi"]')?.getAttribute('href')?.match(/shuju-(\d+)/)?.[1]
-          if (matchId && fid) {
-            mapping.set(matchId, fid)
-            if (idx < 3) console.log('[500Mapper] fallback mapping entry:', matchId, '->', fid)
-          }
-        })
-      }
-
-      if (mapping.size > 0) {
-        mappingCache.set(date, mapping)
-        console.log('[500Mapper] built mapping for', date, ':', mapping.size, 'matches')
-        return mapping
-      }
-    } catch (e) {
-      console.error('[500Mapper] buildFiveMappingForDate error for', url, ':', e)
-    }
-  }
-
-  console.log('[500Mapper] built mapping for', date, ': 0 matches')
-  return new Map()
-}
-
-// ==================== 新增：预加载函数 ====================
-
 async function preloadFiveMapping() {
   console.log('[500Mapper] preloading global mapping')
   try {
@@ -838,11 +760,6 @@ async function tryLivePageWithScore(homeTeam, awayTeam, matchDate) {
   return null
 }
 
-async function tryLivePage(homeTeam, awayTeam, matchDate) {
-  const result = await tryLivePageWithScore(homeTeam, awayTeam, matchDate)
-  return result ? result.id : null
-}
-
 async function tryJczqPage(homeTeam, awayTeam) {
   try {
     const html = await fetchWithGbkFallback('/500-proxy/jczq/')
@@ -892,28 +809,6 @@ async function tryOddsPage(homeTeam, awayTeam) {
       if (homeOk && awayOk) {
         return matchId
       }
-    }
-  } catch (e) {}
-  return null
-}
-
-async function tryVerifyMatchId(matchId, homeTeam, awayTeam) {
-  try {
-    const html = await fetchWithGbkFallback(`/500-proxy/fenxi/shuju-${matchId}.shtml`)
-    if (!html) return null
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(html, 'text/html')
-    const titleEl = doc.querySelector('title')
-    if (!titleEl) return null
-    const titleText = titleEl.textContent || ''
-    const vsMatch = titleText.match(/(.+?)\s*(?:vs|VS)\s*(.+?)(?:\(|$)/i)
-    if (!vsMatch) return null
-    const fiveHome = vsMatch[1].trim()
-    const fiveAway = vsMatch[2].trim()
-    const homeOk = teamNameMatch(homeTeam, fiveHome) || teamNameMatch(homeTeam, fiveAway)
-    const awayOk = teamNameMatch(awayTeam, fiveAway) || teamNameMatch(awayTeam, fiveHome)
-    if (homeOk && awayOk) {
-      return matchId
     }
   } catch (e) {}
   return null
@@ -1102,18 +997,11 @@ try {
 
 export {
   findFiveMatchId,
-  cleanCache,
-  tryVerifyMatchId,
   preloadFiveMapping,
-  buildFiveMappingForDate,
-  extractMatchDate,
-  getGlobalMapping,
   SmartCache,
   BackgroundRefresher,
   refresher,
   REFRESH_INTERVAL,
   CACHE_STRATEGY,
-  mappingCache,
   titanCache,
-  fiveDataCache,
 }

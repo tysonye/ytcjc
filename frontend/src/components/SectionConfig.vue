@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, defineExpose, watch } from 'vue'
+import { ref, reactive, computed, defineExpose } from 'vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { useSectionsStore } from '../stores/sections'
 import AISettings from './AISettings.vue'

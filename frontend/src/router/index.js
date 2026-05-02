@@ -10,8 +10,6 @@ const routes = [
     children: [
       { path: '', name: 'Home', component: () => import('../views/Home.vue') },
       { path: 'match/:id', name: 'MatchDetail', component: () => import('../views/MatchDetail.vue') },
-      { path: 'test', name: 'TestPage', component: () => import('../views/TestPage.vue') },
-      { path: 'proxy-debug', name: 'ProxyDebug', component: () => import('../views/ProxyDebug.vue') },
       {
         path: 'member',
         name: 'MemberCenter',
@@ -33,6 +31,8 @@ const routes = [
       { path: 'tokens', name: 'AdminTokens', component: () => import('../views/admin/TokenStats.vue') },
       { path: 'stats', name: 'AdminStats', component: () => import('../views/admin/DataStats.vue') },
       { path: 'roles', name: 'AdminRoles', component: () => import('../views/admin/RoleManage.vue') },
+      { path: 'membership-permissions', name: 'AdminMembershipPermissions', component: () => import('../views/admin/MembershipPermissionManage.vue') },
+      { path: 'ai-manage', name: 'AdminAIManage', component: () => import('../views/admin/AIManage.vue') },
     ],
   },
   { path: '/admin/login', name: 'AdminLogin', component: () => import('../views/admin/AdminLogin.vue') },

@@ -5,11 +5,44 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from app.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.database import get_db
-from app.models import User, Admin
+from app.config import SECRET_KEY as DEFAULT_SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.database import get_db, SessionLocal
+from app.models import User, Admin, AIConfig
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+_cached_secret_key = None
+_cache_time = None
+CACHE_TTL = 300
+
+
+def _get_effective_secret_key() -> str:
+    global _cached_secret_key, _cache_time
+    now = datetime.utcnow()
+    if _cached_secret_key and _cache_time and (now - _cache_time).total_seconds() < CACHE_TTL:
+        return _cached_secret_key
+    try:
+        db = SessionLocal()
+        config = db.query(AIConfig).first()
+        db.close()
+        if config and config.secret_key:
+            _cached_secret_key = config.secret_key
+        else:
+            _cached_secret_key = DEFAULT_SECRET_KEY
+    except Exception:
+        _cached_secret_key = DEFAULT_SECRET_KEY
+    _cache_time = now
+    return _cached_secret_key
+
+
+def get_secret_key() -> str:
+    return _get_effective_secret_key()
+
+
+def clear_secret_cache():
+    global _cached_secret_key, _cache_time
+    _cached_secret_key = None
+    _cache_time = None
 
 
 def hash_password(password: str) -> str:
@@ -24,7 +57,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, get_secret_key(), algorithm=ALGORITHM)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
@@ -34,7 +67,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_sub": False})
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM], options={"verify_sub": False})
         user_id = payload.get("sub")
         if user_id is None:
             raise credentials_exception
@@ -54,7 +87,7 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
         admin_id: int = payload.get("sub")
         is_admin: bool = payload.get("is_admin", False)
         if admin_id is None or not is_admin:

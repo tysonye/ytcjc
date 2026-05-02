@@ -17,6 +17,11 @@
           <el-button type="primary" size="large" :loading="loading" style="width:100%" @click="handleLogin">登录</el-button>
         </el-form-item>
       </el-form>
+      <div v-if="loginFailed" class="login-hint">
+        <el-icon><Warning /></el-icon>
+        <span>登录失败？请检查用户名密码是否正确，如果没有账号请</span>
+        <router-link to="/register">立即注册</router-link>
+      </div>
       <div class="login-footer">
         还没有账号？<router-link to="/register">立即注册</router-link>
       </div>
@@ -29,13 +34,14 @@ import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, Warning } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
+const loginFailed = ref(false)
 
 const form = reactive({ username: '', password: '' })
 const rules = {
@@ -46,6 +52,7 @@ const rules = {
 const handleLogin = async () => {
   await formRef.value?.validate()
   loading.value = true
+  loginFailed.value = false
   try {
     await userStore.login(form.username, form.password)
     ElMessage.success('登录成功')
@@ -57,7 +64,7 @@ const handleLogin = async () => {
       router.push(redirect)
     }
   } catch (e) {
-    // error handled by interceptor
+    loginFailed.value = true
   } finally {
     loading.value = false
   }
@@ -124,5 +131,24 @@ const handleLogin = async () => {
   margin-top: 15px;
   color: $text-secondary;
   font-size: 13px;
+}
+
+.login-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  background: #fef0f0;
+  border: 1px solid #fde2e2;
+  border-radius: 8px;
+  color: #e64242;
+  font-size: 13px;
+
+  a {
+    color: $primary-color;
+    font-weight: 600;
+  }
 }
 </style>
